@@ -70,7 +70,10 @@ sessions retain their persisted agent/model selection.
 - Council uses the existing CouncilManager with isolated new councillor
   sessions, their configured models, and collected results for synthesis.
 - Existing custom tools are bridged with JSON schemas and permission checks.
-  AST tool paths resolve against the location, not the shared server's cwd.
+  `subtask` also checks delegation permission for the orchestrator worker, so
+  leaf agents cannot use it to bypass `subagent` denials. V2 AST tools require
+  explicit file paths (use native `glob` first), authorize canonical read/edit
+  resources and external-directory boundaries, and refuse directory recursion.
 
 ## Deliberate differences / remaining validation
 

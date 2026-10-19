@@ -1,4 +1,3 @@
-import { resolve } from 'node:path';
 import type { Plugin } from '@opencode/plugin';
 import type { SessionContext } from '@opencode/plugin/promise/session';
 import type { PluginInput } from '@opencode-ai/plugin';
@@ -15,6 +14,7 @@ import {
 } from './adapters';
 import { createClientShim } from './client-shim';
 import { adaptEvent } from './events';
+import { guardLegacyTool } from './tool-permissions';
 
 type LegacyHooks = Omit<
   Awaited<ReturnType<typeof legacyPlugin>>,
@@ -134,35 +134,32 @@ export async function setup(ctx: Plugin.Context) {
       await ctx.tool.transform((editor) => {
         for (const [name, raw] of Object.entries(legacy.tool ?? {})) {
           const tool = raw as unknown as LegacyTool;
+          const isAst =
+            name === 'ast_grep_search' || name === 'ast_grep_replace';
+          const argsSchema = isAst
+            ? z.object(tool.args).extend({
+                paths: z
+                  .array(z.string())
+                  .min(1)
+                  .describe(
+                    'Explicit file paths only; use native glob before directory searches.',
+                  ),
+              })
+            : z.object(tool.args);
           editor.add({
             name,
-            description: adaptPrompt(tool.description),
-            input: z.toJSONSchema(z.object(tool.args)) as never,
+            description:
+              adaptPrompt(tool.description) +
+              (isAst
+                ? ' On V2, paths must list explicit files; use native glob first. Directory recursion is refused.'
+                : ''),
+            input: z.toJSONSchema(argsSchema) as never,
             options: { codemode: false },
             async execute(input, context) {
-              await ctx.permission.assert({
+              await guardLegacyTool(ctx, name, input, {
                 sessionID: context.sessionID,
                 agent: context.agent,
-                action: name,
-                resources: ['*'],
               });
-              if (name === 'ast_grep_search' || name === 'ast_grep_replace') {
-                const args = input as { paths?: string[] };
-                args.paths = (args.paths?.length ? args.paths : ['.']).map(
-                  (path) => resolve(ctx.location.directory, path),
-                );
-              }
-              if (
-                name === 'ast_grep_replace' &&
-                (input as { dryRun?: boolean }).dryRun === false
-              ) {
-                await ctx.permission.assert({
-                  sessionID: context.sessionID,
-                  agent: context.agent,
-                  action: 'edit',
-                  resources: ['*'],
-                });
-              }
               const output = await tool.execute(input, {
                 ...context,
                 callID: context.id,

@@ -81,6 +81,9 @@ maintained artifact; build `dist/` locally rather than downloading upstream
   are not host-verified. `/subtask` is not registered, while its tool is bridged.
 - V2 keeps session agent and model selection separate: select the desired model
   explicitly when switching primary agents.
+- V2 AST tools require explicit files selected with native `glob` first. They
+  enforce file-specific read/edit permissions instead of recursively scanning
+  unauthorized directories. Leaf agents cannot spawn privileged `subtask` workers.
 
 See [the adapter guide](docs/opencode-v2-omo1.md) for details and old agent-file
 migration. [Historical V1 documentation](README.v1.md) is retained for provenance;
