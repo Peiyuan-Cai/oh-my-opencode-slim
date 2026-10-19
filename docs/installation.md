@@ -196,9 +196,10 @@ If the installer reports that the configuration already exists, you have two opt
    opencode auth status
    ```
 
-2. From your project root, verify your config file exists and is valid:
+2. From your project root, verify your plugin config file exists and matches the
+   documented schema:
    ```bash
-   bunx oh-my-opencode-slim@latest doctor
+   cat ~/.config/opencode/oh-my-opencode-slim.json
    ```
 
 3. Check that your provider is configured in `~/.config/opencode/opencode.json`

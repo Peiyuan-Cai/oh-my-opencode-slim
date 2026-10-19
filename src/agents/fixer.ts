@@ -64,6 +64,9 @@ export function createFixerAgent(
       model,
       temperature: 0.2,
       prompt,
+      permission: {
+        task: 'deny',
+      },
     },
   };
 }

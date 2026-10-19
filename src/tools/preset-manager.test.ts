@@ -39,13 +39,16 @@ function getOutputText(output: ReturnType<typeof createOutput>): string {
 
 let previousXdgDataHome: string | undefined;
 let previousOpenCodeConfigDir: string | undefined;
+let previousXdgConfigHome: string | undefined;
 let tempDir: string;
 
 beforeEach(() => {
   previousXdgDataHome = process.env.XDG_DATA_HOME;
   previousOpenCodeConfigDir = process.env.OPENCODE_CONFIG_DIR;
+  previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omos-preset-manager-'));
   process.env.XDG_DATA_HOME = tempDir;
+  process.env.XDG_CONFIG_HOME = path.join(tempDir, 'config');
   delete process.env.OPENCODE_CONFIG_DIR;
   setActiveRuntimePreset(null);
 });
@@ -61,6 +64,12 @@ afterEach(() => {
     delete process.env.OPENCODE_CONFIG_DIR;
   } else {
     process.env.OPENCODE_CONFIG_DIR = previousOpenCodeConfigDir;
+  }
+
+  if (previousXdgConfigHome === undefined) {
+    delete process.env.XDG_CONFIG_HOME;
+  } else {
+    process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
   }
 
   fs.rmSync(tempDir, { recursive: true, force: true });

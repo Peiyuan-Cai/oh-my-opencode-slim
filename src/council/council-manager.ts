@@ -40,6 +40,7 @@ export class CouncilManager {
   private tmuxEnabled: boolean;
   private deprecatedFields?: string[];
   private legacyMasterModel?: string;
+  private readonly isV2: boolean;
 
   constructor(
     ctx: PluginInput,
@@ -54,6 +55,8 @@ export class CouncilManager {
     this.legacyMasterModel = config?.council?._legacyMasterModel;
     this.depthTracker = depthTracker;
     this.tmuxEnabled = tmuxEnabled;
+    this.isV2 =
+      (ctx as PluginInput & { hostFlavor?: string }).hostFlavor === 'v2';
   }
 
   /** Return deprecated config fields detected during parsing (for tool warnings). */
@@ -201,6 +204,9 @@ export class CouncilManager {
     parentSessionId: string,
     councillorCount: number,
   ): Promise<void> {
+    // V2 resume:false queues a real input rather than a transient V1 message.
+    // A status notification must not cause an extra model turn later.
+    if (this.isV2) return;
     const message = [
       `⎔ Council starting — ${councillorCount} councillors launching — ctrl+x ↓ to watch`,
       '',

@@ -136,7 +136,9 @@ describe('auto-update-checker/index', () => {
     );
     const { ctx, showToast } = createCtx();
 
-    const hook = createAutoUpdateCheckerHook(ctx as never);
+    const hook = createAutoUpdateCheckerHook(ctx as never, {
+      showStartupToast: false,
+    });
     hook.event({ event: { type: 'session.created', properties: {} } });
     await waitForCalls(logMock);
 
@@ -171,7 +173,9 @@ describe('auto-update-checker/index', () => {
     );
     const { ctx, showToast } = createCtx();
 
-    const hook = createAutoUpdateCheckerHook(ctx as never);
+    const hook = createAutoUpdateCheckerHook(ctx as never, {
+      showStartupToast: false,
+    });
     hook.event({ event: { type: 'session.created', properties: {} } });
     await waitForCalls(showToast);
 
@@ -212,6 +216,7 @@ describe('auto-update-checker/index', () => {
 
     const hook = createAutoUpdateCheckerHook(ctx as never, {
       autoUpdate: false,
+      showStartupToast: false,
     });
     hook.event({ event: { type: 'session.created', properties: {} } });
     await waitForCalls(showToast);
@@ -246,7 +251,9 @@ describe('auto-update-checker/index', () => {
     );
     const { ctx, showToast } = createCtx();
 
-    const hook = createAutoUpdateCheckerHook(ctx as never);
+    const hook = createAutoUpdateCheckerHook(ctx as never, {
+      showStartupToast: false,
+    });
     hook.event({ event: { type: 'session.created', properties: {} } });
     await waitForCalls(showToast);
 
@@ -288,7 +295,9 @@ describe('auto-update-checker/index', () => {
     );
     const { ctx, showToast } = createCtx();
 
-    const hook = createAutoUpdateCheckerHook(ctx as never);
+    const hook = createAutoUpdateCheckerHook(ctx as never, {
+      showStartupToast: false,
+    });
     hook.event({ event: { type: 'session.created', properties: {} } });
     await waitForCalls(showToast);
 
@@ -324,7 +333,9 @@ describe('auto-update-checker/index', () => {
     );
     const { ctx, showToast } = createCtx();
 
-    const hook = createAutoUpdateCheckerHook(ctx as never);
+    const hook = createAutoUpdateCheckerHook(ctx as never, {
+      showStartupToast: false,
+    });
     hook.event({ event: { type: 'session.created', properties: {} } });
     await waitForCalls(showToast);
 
@@ -358,7 +369,9 @@ describe('auto-update-checker/index', () => {
     );
     const { ctx, showToast } = createCtx();
 
-    const hook = createAutoUpdateCheckerHook(ctx as never);
+    const hook = createAutoUpdateCheckerHook(ctx as never, {
+      showStartupToast: false,
+    });
     hook.event({ event: { type: 'session.created', properties: {} } });
     await waitForCalls(showToast);
 
@@ -390,7 +403,9 @@ describe('auto-update-checker/index', () => {
     );
     const { ctx, showToast } = createCtx();
 
-    const hook = createAutoUpdateCheckerHook(ctx as never);
+    const hook = createAutoUpdateCheckerHook(ctx as never, {
+      showStartupToast: false,
+    });
     hook.event({ event: { type: 'session.created', properties: {} } });
     await waitForCalls(showToast);
 

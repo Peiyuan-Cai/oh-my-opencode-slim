@@ -11,6 +11,11 @@ type SpawnResult = {
 
 const logMock = mock(() => {});
 const crossSpawnMock = mock((_command: string[]) => createSpawnResult());
+const binaryLookupCommand = process.platform === 'win32' ? 'where' : 'which';
+const tmuxBinary =
+  process.platform === 'win32' ? 'C:\\tools\\tmux.exe' : '/usr/bin/tmux';
+const binaryLookupStdout =
+  process.platform === 'win32' ? `${tmuxBinary}\r\n` : `${tmuxBinary}\n`;
 
 mock.module('../../utils/logger', () => ({
   log: logMock,
@@ -60,8 +65,8 @@ describe('TmuxMultiplexer', () => {
     logMock.mockClear();
     crossSpawnMock.mockReset();
     crossSpawnMock.mockImplementation((command: string[]) => {
-      if (command[0] === 'which')
-        return createSpawnResult(0, '/usr/bin/tmux\n');
+      if (command[0] === binaryLookupCommand)
+        return createSpawnResult(0, binaryLookupStdout);
       if (command[1] === '-V') return createSpawnResult(0, 'tmux 3.6a');
       if (command[1] === 'split-window') {
         return createSpawnResult(0, '%2\n');
@@ -116,8 +121,8 @@ describe('TmuxMultiplexer', () => {
     const tmux = new TmuxMultiplexer('main-vertical', 60);
 
     crossSpawnMock.mockImplementation((command: string[]) => {
-      if (command[0] === 'which')
-        return createSpawnResult(0, '/usr/bin/tmux\n');
+      if (command[0] === binaryLookupCommand)
+        return createSpawnResult(0, binaryLookupStdout);
       if (command[1] === '-V') return createSpawnResult(0, 'tmux 3.6a');
       if (command.includes('select-layout')) {
         return createSpawnResult(1, '', 'layout failed');
@@ -132,7 +137,7 @@ describe('TmuxMultiplexer', () => {
     ).toHaveLength(0);
     expect(logMock).toHaveBeenCalledWith('[tmux] command failed', {
       command: 'select-layout',
-      args: ['/usr/bin/tmux', 'select-layout', '-t', '%1', 'main-vertical'],
+      args: [tmuxBinary, 'select-layout', '-t', '%1', 'main-vertical'],
       exitCode: 1,
       stderr: 'layout failed',
     });

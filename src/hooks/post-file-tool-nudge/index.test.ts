@@ -11,84 +11,175 @@ function createOutput(output = 'real content') {
   };
 }
 
-function countReminderInOutput(output: string | unknown): number {
-  if (typeof output !== 'string') return 0;
-  return output.split(PHASE_REMINDER_TEXT).length - 1;
+function countReminder(system: string[]) {
+  return system.join('\n').split(PHASE_REMINDER_TEXT).length - 1;
 }
 
 describe('post-file-tool-nudge hook', () => {
-  test('appends delegation reminder to tool output', async () => {
+  test('does not contaminate persisted Read output', async () => {
     const hook = createPostFileToolNudgeHook();
     const output = createOutput();
+
+    await hook['tool.execute.after']({ tool: 'read', sessionID: 's1' }, output);
+
+    expect(output.output).toBe('real content');
+    expect(output.output).not.toContain(PHASE_REMINDER_TEXT);
+  });
+
+  test('injects the delegation reminder in system transform', async () => {
+    const hook = createPostFileToolNudgeHook();
+    const output = createOutput();
+    const system = { system: ['base system prompt'] };
 
     await hook['tool.execute.after']({ tool: 'Read', sessionID: 's1' }, output);
+    await hook['experimental.chat.system.transform'](
+      { sessionID: 's1' },
+      system,
+    );
 
-    expect(output.output).toContain(PHASE_REMINDER_TEXT);
-    expect(output.output).toContain('<internal_reminder>');
-    expect(output.output).toContain('</internal_reminder>');
+    expect(output.output).toBe('real content');
+    expect(system.system.join('\n')).toContain(PHASE_REMINDER_TEXT);
   });
 
-  test('does not duplicate reminder in same tool output', async () => {
+  test('consumes the reminder once', async () => {
     const hook = createPostFileToolNudgeHook();
-    const output = createOutput();
+    const first = { system: ['base'] };
+    const second = { system: ['base'] };
 
-    await hook['tool.execute.after']({ tool: 'read', sessionID: 's1' }, output);
-    await hook['tool.execute.after']({ tool: 'read', sessionID: 's1' }, output);
+    await hook['tool.execute.after'](
+      { tool: 'write', sessionID: 's1' },
+      createOutput(),
+    );
+    await hook['experimental.chat.system.transform'](
+      { sessionID: 's1' },
+      first,
+    );
+    await hook['experimental.chat.system.transform'](
+      { sessionID: 's1' },
+      second,
+    );
 
-    expect(countReminderInOutput(output.output)).toBe(1);
+    expect(countReminder(first.system)).toBe(1);
+    expect(countReminder(second.system)).toBe(0);
   });
 
-  test('deduplicates multiple Read/Write calls in same session', async () => {
+  test('deduplicates multiple Read/Write calls before the next prompt', async () => {
     const hook = createPostFileToolNudgeHook();
-    const output1 = createOutput('content 1');
-    const output2 = createOutput('content 2');
-    const output3 = createOutput('content 3');
+    const system = { system: ['base'] };
 
     await hook['tool.execute.after'](
       { tool: 'read', sessionID: 's1' },
-      output1,
+      createOutput(),
     );
     await hook['tool.execute.after'](
       { tool: 'write', sessionID: 's1' },
-      output2,
+      createOutput(),
     );
     await hook['tool.execute.after'](
       { tool: 'Read', sessionID: 's1' },
-      output3,
+      createOutput(),
+    );
+    await hook['experimental.chat.system.transform'](
+      { sessionID: 's1' },
+      system,
     );
 
-    expect(output1.output).toContain(PHASE_REMINDER_TEXT);
-    expect(output2.output).toContain(PHASE_REMINDER_TEXT);
-    expect(output3.output).toContain(PHASE_REMINDER_TEXT);
+    expect(countReminder(system.system)).toBe(1);
   });
 
   test('ignores non-file tools', async () => {
     const hook = createPostFileToolNudgeHook();
     const output = createOutput('ok');
+    const system = { system: ['base'] };
 
     await hook['tool.execute.after']({ tool: 'bash', sessionID: 's1' }, output);
+    await hook['experimental.chat.system.transform'](
+      { sessionID: 's1' },
+      system,
+    );
 
     expect(output.output).toBe('ok');
-    expect(output.output).not.toContain(PHASE_REMINDER_TEXT);
+    expect(countReminder(system.system)).toBe(0);
   });
 
-  test('skips injection when shouldInject returns false', async () => {
+  test('consumes without injecting when the session should not receive the nudge', async () => {
     const hook = createPostFileToolNudgeHook({ shouldInject: () => false });
-    const output = createOutput();
+    const first = { system: ['base'] };
+    const second = { system: ['base'] };
 
-    await hook['tool.execute.after']({ tool: 'read', sessionID: 's1' }, output);
+    await hook['tool.execute.after'](
+      { tool: 'read', sessionID: 's1' },
+      createOutput(),
+    );
+    await hook['experimental.chat.system.transform'](
+      { sessionID: 's1' },
+      first,
+    );
+    await hook['experimental.chat.system.transform'](
+      { sessionID: 's1' },
+      second,
+    );
 
-    expect(output.output).toBe('real content');
-    expect(output.output).not.toContain(PHASE_REMINDER_TEXT);
+    expect(countReminder(first.system)).toBe(0);
+    expect(countReminder(second.system)).toBe(0);
   });
 
   test('ignores Read/Write without sessionID', async () => {
     const hook = createPostFileToolNudgeHook();
     const output = createOutput();
+    const system = { system: ['base'] };
 
     await hook['tool.execute.after']({ tool: 'read' }, output);
+    await hook['experimental.chat.system.transform'](
+      { sessionID: 's1' },
+      system,
+    );
 
     expect(output.output).toBe('real content');
-    expect(output.output).not.toContain(PHASE_REMINDER_TEXT);
+    expect(countReminder(system.system)).toBe(0);
+  });
+
+  test('cleans up pending reminders when a session is deleted', async () => {
+    const hook = createPostFileToolNudgeHook();
+    const system = { system: ['base'] };
+
+    await hook['tool.execute.after'](
+      { tool: 'read', sessionID: 's1' },
+      createOutput(),
+    );
+    await hook.event({
+      event: {
+        type: 'session.deleted',
+        properties: { info: { id: 's1' } },
+      },
+    });
+    await hook['experimental.chat.system.transform'](
+      { sessionID: 's1' },
+      system,
+    );
+
+    expect(countReminder(system.system)).toBe(0);
+  });
+
+  test('cleans up pending reminders from sessionID delete events', async () => {
+    const hook = createPostFileToolNudgeHook();
+    const system = { system: ['base'] };
+
+    await hook['tool.execute.after'](
+      { tool: 'write', sessionID: 's1' },
+      createOutput(),
+    );
+    await hook.event({
+      event: {
+        type: 'session.deleted',
+        properties: { sessionID: 's1' },
+      },
+    });
+    await hook['experimental.chat.system.transform'](
+      { sessionID: 's1' },
+      system,
+    );
+
+    expect(countReminder(system.system)).toBe(0);
   });
 });

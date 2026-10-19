@@ -49,6 +49,26 @@ export async function abortSessionWithTimeout(
   );
 }
 
+export async function extractSessionAgent(
+  client: OpencodeClient,
+  sessionId: string,
+): Promise<string | undefined> {
+  const messagesResult = await client.session.messages({
+    path: { id: sessionId },
+  });
+  const messages = (messagesResult.data ?? []) as Array<{
+    info?: { agent?: unknown };
+  }>;
+
+  for (const message of [...messages].reverse()) {
+    const agent = message.info?.agent;
+    if (typeof agent === 'string' && agent.length > 0) {
+      return agent;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Extract the short model label from a "provider/model" string.
  * E.g. "openai/gpt-5.4-mini" → "gpt-5.4-mini"

@@ -432,7 +432,7 @@ describe('config-io', () => {
 
     const saved = JSON.parse(readFileSync(litePath, 'utf-8'));
     expect(saved.$schema).toBe(
-      'https://unpkg.com/oh-my-opencode-slim@latest/oh-my-opencode-slim.schema.json',
+      'https://raw.githubusercontent.com/Peiyuan-Cai/oh-my-opencode-slim/feat/opencode-v2-compat/oh-my-opencode-slim.schema.json',
     );
     expect(saved.preset).toBe('openai');
     expect(saved.presets.openai).toBeDefined();

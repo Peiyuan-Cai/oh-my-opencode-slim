@@ -7,7 +7,7 @@
 - define orchestrator and specialist agents,
 - load layered plugin configuration and per-agent permissions,
 - expose additional tools and MCP integrations,
-- manage delegated/resumable session orchestration and terminal multiplexer visualization,
+- manage delegated/council orchestration and terminal multiplexer visualization,
 - inject workflow-enforcement hooks plus runtime command handlers,
 - ship install-time skills and a bootstrap CLI.
 
@@ -18,7 +18,9 @@ This codemap intentionally covers the plugin repository itself and excludes the 
 | Path | Role |
 |---|---|
 | `package.json` | Package manifest, dependency graph, release scripts, published file list. |
-| `src/index.ts` | Main plugin bootstrap: wires agents, tools, MCPs, hooks, council/session managers, multiplexer session mirroring, interview/preset managers, task-session tracking, and config merge behavior. |
+| `src/index.ts` | Main plugin bootstrap: wires agents, tools, MCPs, hooks, council/session managers, multiplexer session mirroring, interview/preset managers, and config merge behavior. |
+| `src/v2/index.ts` | OpenCode V2 adapter reusing the local OMO1 bootstrap; see `src/v2/codemap.md`. |
+| `server.js` | Local-directory V2 loader forwarder to the built adapter. |
 | `src/cli/index.ts` | CLI entrypoint for installation/bootstrap workflows. |
 | `src/config/schema.ts` | Source-of-truth runtime config schema used by validation and schema generation. |
 | `scripts/generate-schema.ts` | Generates `oh-my-opencode-slim.schema.json` from the Zod config schema. |
@@ -27,12 +29,12 @@ This codemap intentionally covers the plugin repository itself and excludes the 
 
 | Directory | Responsibility Summary | Detailed Map |
 |---|---|---|
-| `src/` | Main application surface that composes plugin bootstrap, runtime model chains, hook orchestration, task-session aliasing, and installer-facing code. | [View Map](src/codemap.md) |
+| `src/` | Main application surface that composes plugin bootstrap, runtime model chains, hook orchestration, and installer-facing code. | [View Map](src/codemap.md) |
 | `src/agents/` | Agent factory layer for orchestrator and specialists, including prompt/model overrides, display-name normalization, MCP assignment, and permission shaping. | [View Map](src/agents/codemap.md) |
 | `src/cli/` | Installer, config editing, provider preset generation, and built-in skill installation. | [View Map](src/cli/codemap.md) |
 | `src/config/` | Configuration schema, layered loaders, preset merging, compatibility migrations, constant tables, and agent/MCP policy helpers. | [View Map](src/config/codemap.md) |
 | `src/council/` | Multi-model council orchestration with preset resolution, councillor execution modes, retries, timeout handling, and synthesis fallback flow. | [View Map](src/council/codemap.md) |
-| `src/hooks/` | Aggregated runtime hook surface for prompt transforms, recovery logic, task-session aliasing, nudges, and lifecycle policies. | [View Map](src/hooks/codemap.md) |
+| `src/hooks/` | Aggregated runtime hook surface for prompt transforms, recovery logic, nudges, and lifecycle policies. | [View Map](src/hooks/codemap.md) |
 | `src/hooks/apply-patch/` | Structured `apply_patch` parsing, matching, recovery, and rewrite pipeline. | [View Map](src/hooks/apply-patch/codemap.md) |
 | `src/hooks/auto-update-checker/` | Startup update detection, cache handling, and optional install prompt flow. | [View Map](src/hooks/auto-update-checker/codemap.md) |
 | `src/hooks/delegate-task-retry/` | Post-tool retry guidance for failed delegation attempts. | [View Map](src/hooks/delegate-task-retry/codemap.md) |
@@ -41,7 +43,6 @@ This codemap intentionally covers the plugin repository itself and excludes the 
 | `src/hooks/json-error-recovery/` | JSON/tool-output recovery helpers for malformed model responses. | [View Map](src/hooks/json-error-recovery/codemap.md) |
 | `src/hooks/phase-reminder/` | Message-transform reminder enforcing orchestrator workflow phases. | [View Map](src/hooks/phase-reminder/codemap.md) |
 | `src/hooks/post-file-tool-nudge/` | Post-read/write reminder path that nudges delegation-aware next steps. | [View Map](src/hooks/post-file-tool-nudge/codemap.md) |
-| `src/hooks/task-session-manager/` | Resumable `task` session tracking, short alias resolution, prompt injection, and stale-session cleanup. | [View Map](src/hooks/task-session-manager/codemap.md) |
 | `src/hooks/todo-continuation/` | Auto-continue behavior for outstanding todo execution. | [View Map](src/hooks/todo-continuation/codemap.md) |
 | `src/interview/` | `/interview` feature: per-session and dashboard prompt/state orchestration, persistence, local UI, and cross-process coordination. | [View Map](src/interview/codemap.md) |
 | `src/mcp/` | Built-in MCP registry and per-provider MCP definitions. | [View Map](src/mcp/codemap.md) |
@@ -55,7 +56,7 @@ This codemap intentionally covers the plugin repository itself and excludes the 
 | `src/tools/` | Tool and runtime-command export surface for AST-grep, smartfetch, council orchestration, and `/preset` switching. | [View Map](src/tools/codemap.md) |
 | `src/tools/ast-grep/` | AST-grep binary management and AST-aware search/replace tool flow. | [View Map](src/tools/ast-grep/codemap.md) |
 | `src/tools/smartfetch/` | Fetch/extract/cache pipeline for web content and secondary-model summarization. | [View Map](src/tools/smartfetch/codemap.md) |
-| `src/utils/` | Cross-cutting helpers for logging, session metadata, resumable task aliases, system-message normalization, subagent depth tracking, environment, and runtime operations. | [View Map](src/utils/codemap.md) |
+| `src/utils/` | Cross-cutting helpers for logging, session metadata, task-output parsing, system-message normalization, subagent depth tracking, environment, and runtime operations. | [View Map](src/utils/codemap.md) |
 | `scripts/` | Build/release validation and generated-artifact maintenance scripts. | [View Map](scripts/codemap.md) |
 
 ## Runtime Control Flow
@@ -66,7 +67,7 @@ This codemap intentionally covers the plugin repository itself and excludes the 
    - Agent definitions are produced by `src/agents/`.
    - Tool factories from `src/tools/` and MCP definitions from `src/mcp/` are registered.
    - Hooks from `src/hooks/` are attached.
-   - Delegation/council orchestration, multiplexer session mirroring, interview support, task-session aliasing, and runtime preset handling are initialized.
+   - Delegation/council orchestration, multiplexer session mirroring, interview support, and runtime preset handling are initialized.
 
 2. **Interactive request handling**
    - The orchestrator prompt drives routing decisions.
@@ -75,7 +76,6 @@ This codemap intentionally covers the plugin repository itself and excludes the 
 
 3. **Delegated execution**
    - OpenCode child sessions are created by delegation/council flows and tracked by plugin utilities.
-   - `src/hooks/task-session-manager/` remembers reusable child sessions and injects short aliases into the orchestrator prompt.
    - `src/multiplexer/` optionally mirrors those sessions into tmux/zellij panes.
    - Results flow back into the parent session through notifications/output polling.
 
@@ -92,7 +92,6 @@ This codemap intentionally covers the plugin repository itself and excludes the 
 - Session/delegation utilities depend on `src/multiplexer/` and cooperate with helpers in `src/utils/` for depth tracking, result extraction, task output parsing, and alias state.
 - `src/tools/council.ts` delegates into `src/council/`.
 - `src/tools/preset-manager.ts` hooks command execution and updates runtime agent models from configured presets.
-- `src/hooks/task-session-manager/` depends on `src/utils/session-manager.ts` and `src/utils/task.ts` to support child-session reuse.
 - `src/hooks/filter-available-skills/` and agent permission logic rely on shared skill names from the CLI/config layer.
 - `src/interview/` hooks into plugin command/event surfaces exposed by `src/index.ts`.
 

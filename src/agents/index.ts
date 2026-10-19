@@ -1,5 +1,6 @@
 import type { AgentConfig as SDKAgentConfig } from '@opencode-ai/sdk/v2';
 import { getSkillPermissionsForAgent } from '../cli/skills';
+import { isOrchestratorAgent } from '../cli/superpowers-policy';
 import {
   type AgentOverrideConfig,
   ALL_AGENT_NAMES,
@@ -12,6 +13,7 @@ import {
   PROTECTED_AGENTS,
   SUBAGENT_NAMES,
 } from '../config';
+import { getRestrictedMcpDenies } from '../config/agent-mcp-blacklist';
 import { getAgentMcpList } from '../config/agent-mcps';
 
 import { createCouncilAgent } from './council';
@@ -37,6 +39,9 @@ type AgentFactory = (
 ) => AgentDefinition;
 
 const COUNCIL_TOOL_ALLOWED_AGENTS = new Set(['council']);
+const TASK_FALLBACK_AGENT_SUFFIX = '__task_fallback';
+const ANTHROPIC_PROVIDER_PREFIX = 'gauge-forge-anthropic/';
+
 const SAFE_AGENT_ALIAS_RE = /^[a-z][a-z0-9_-]*$/i;
 
 function normalizeDisplayName(displayName: string): string {
@@ -50,6 +55,47 @@ function isSafeDisplayName(displayName: string): boolean {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function getTaskFallbackShadowName(agentName: string): string {
+  return `${agentName}${TASK_FALLBACK_AGENT_SUFFIX}`;
+}
+
+function getTaskFallbackShadowConfig(
+  agent: AgentDefinition,
+  sdkConfig: SDKAgentConfig & {
+    mcps?: string[];
+    displayName?: string;
+    hidden?: boolean;
+  },
+): [string, SDKAgentConfig] | undefined {
+  if (isOrchestratorAgent(agent.name)) {
+    return undefined;
+  }
+
+  const models = agent._modelArray;
+  if (!models || models.length < 2) {
+    return undefined;
+  }
+
+  const [primary, backup] = models;
+  if (!primary?.id.startsWith(ANTHROPIC_PROVIDER_PREFIX)) {
+    return undefined;
+  }
+
+  const shadowConfig: SDKAgentConfig & {
+    mcps?: string[];
+    displayName?: string;
+    hidden?: boolean;
+  } = {
+    ...sdkConfig,
+    model: backup.id,
+    hidden: true,
+    mode: 'subagent',
+    ...(backup.variant ? { variant: backup.variant } : { variant: undefined }),
+  };
+  shadowConfig.displayName = undefined;
+  return [getTaskFallbackShadowName(agent.name), shadowConfig];
 }
 
 // Agent Configuration Helpers
@@ -162,6 +208,7 @@ function injectDisplayNames(
 function applyDefaultPermissions(
   agent: AgentDefinition,
   configuredSkills?: string[],
+  superpowersSkillsDir?: string,
 ): void {
   const existing = (agent.config.permission ?? {}) as Record<
     string,
@@ -172,6 +219,7 @@ function applyDefaultPermissions(
   const skillPermissions = getSkillPermissionsForAgent(
     agent.name,
     configuredSkills,
+    superpowersSkillsDir,
   );
 
   // Respect explicit deny on question (councillor)
@@ -224,9 +272,6 @@ const SUBAGENT_FACTORIES: Record<SubagentName, AgentFactory> = {
  */
 export function createAgents(config?: PluginConfig): AgentDefinition[] {
   const disabled = getDisabledAgents(config);
-  if (!config?.council) {
-    disabled.add('council');
-  }
 
   // TEMP: If fixer has no config, inherit from librarian's model to avoid breaking
   // existing users who don't have fixer in their config yet
@@ -301,7 +346,11 @@ export function createAgents(config?: PluginConfig): AgentDefinition[] {
     if (override) {
       applyOverrides(agent, override);
     }
-    applyDefaultPermissions(agent, override?.skills);
+    applyDefaultPermissions(
+      agent,
+      override?.skills,
+      config?.superpowersSkillsDir,
+    );
     return agent;
   });
 
@@ -325,7 +374,11 @@ export function createAgents(config?: PluginConfig): AgentDefinition[] {
     if (override) {
       applyOverrides(agent, override);
     }
-    applyDefaultPermissions(agent, override?.skills);
+    applyDefaultPermissions(
+      agent,
+      override?.skills,
+      config?.superpowersSkillsDir,
+    );
     return agent;
   });
 
@@ -344,7 +397,11 @@ export function createAgents(config?: PluginConfig): AgentDefinition[] {
     orchestratorPrompts.appendPrompt,
     disabled,
   );
-  applyDefaultPermissions(orchestrator, orchestratorOverride?.skills);
+  applyDefaultPermissions(
+    orchestrator,
+    orchestratorOverride?.skills,
+    config?.superpowersSkillsDir,
+  );
   if (orchestratorOverride) {
     applyOverrides(orchestrator, orchestratorOverride);
   }
@@ -448,7 +505,10 @@ export function getAgentConfigs(
       sdkConfig.hidden = true;
     } else if (isSubagent(name)) {
       sdkConfig.mode = 'subagent';
-    } else if (name === 'orchestrator') {
+    } else if (isOrchestratorAgent(name)) {
+      // "orchestrator", "orchestrator-beta", "orchestrator2", ... all become
+      // primary agents so users can switch to a fallback when their main
+      // orchestrator's model rate-limits.
       sdkConfig.mode = 'primary';
     } else {
       sdkConfig.mode = 'subagent';
@@ -476,17 +536,41 @@ export function getAgentConfigs(
 
     applyClassification(a.name, sdkConfig);
 
+    // Apply closed-set restricted MCP blacklist.
+    // Non-operator agents receive explicit deny rules for windows-mcp,
+    // chrome-devtools, and/or playwright. Operator agents receive nothing,
+    // leaving those MCPs implicit-allow and future-safe for new MCPs.
+    const restrictedDenies = getRestrictedMcpDenies(a.name);
+    if (restrictedDenies.length > 0) {
+      const existingPerm = (sdkConfig.permission ?? {}) as Record<
+        string,
+        unknown
+      >;
+      for (const mcp of restrictedDenies) {
+        const sanitized = mcp.replace(/[^a-zA-Z0-9_-]/g, '_');
+        existingPerm[`${sanitized}_*`] = 'deny';
+      }
+      sdkConfig.permission = existingPerm as typeof sdkConfig.permission;
+    }
+
     const normalizedDisplayName = a.displayName
       ? normalizeDisplayName(a.displayName)
       : undefined;
+    const shadow = getTaskFallbackShadowConfig(a, sdkConfig);
 
     if (normalizedDisplayName && !isInternalOnly(a.name)) {
       entries.push([normalizedDisplayName, sdkConfig]);
       entries.push([a.name, { ...sdkConfig, hidden: true }]);
+      if (shadow) {
+        entries.push(shadow);
+      }
       continue;
     }
 
     entries.push([a.name, sdkConfig]);
+    if (shadow) {
+      entries.push(shadow);
+    }
   }
 
   return Object.fromEntries(entries);
@@ -513,9 +597,6 @@ export function getDisabledAgents(config?: PluginConfig): Set<string> {
  */
 export function getEnabledAgentNames(config?: PluginConfig): string[] {
   const disabled = getDisabledAgents(config);
-  if (!config?.council) {
-    disabled.add('council');
-  }
   const customAgentNames = getCustomAgentNames(config).filter(
     (name) => !disabled.has(name),
   );

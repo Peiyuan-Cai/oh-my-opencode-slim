@@ -181,38 +181,6 @@ export const InterviewConfigSchema = z.object({
 
 export type InterviewConfig = z.infer<typeof InterviewConfigSchema>;
 
-export const SessionManagerConfigSchema = z.object({
-  maxSessionsPerAgent: z.number().int().min(1).max(10).default(2),
-  readContextMinLines: z.number().int().min(0).max(1000).default(10),
-  readContextMaxFiles: z.number().int().min(0).max(50).default(8),
-});
-
-export type SessionManagerConfig = z.infer<typeof SessionManagerConfigSchema>;
-
-export const DivoomConfigSchema = z.object({
-  enabled: z.boolean().default(false),
-  python: z
-    .string()
-    .min(1)
-    .default(
-      '/Applications/Divoom MiniToo.app/Contents/Resources/.venv/bin/python',
-    ),
-  script: z
-    .string()
-    .min(1)
-    .default(
-      '/Applications/Divoom MiniToo.app/Contents/Resources/tools/divoom_send.py',
-    ),
-  size: z.number().int().min(1).max(1024).default(128),
-  fps: z.number().int().min(1).max(60).default(8),
-  speed: z.number().int().min(1).max(10_000).default(125),
-  maxFrames: z.number().int().min(1).max(500).default(24),
-  posterizeBits: z.number().int().min(1).max(8).default(3),
-  gifs: z.record(z.string(), z.string().min(1)).optional(),
-});
-
-export type DivoomConfig = z.infer<typeof DivoomConfigSchema>;
-
 // Todo continuation configuration
 export const TodoContinuationConfigSchema = z.object({
   maxContinuations: z
@@ -323,11 +291,19 @@ export const PluginConfigSchema = z
     setDefaultAgent: z.boolean().optional(),
     scoringEngineVersion: z.enum(['v1', 'v2-shadow', 'v2']).optional(),
     balanceProviderUsage: z.boolean().optional(),
-    autoUpdate: z
+    showStartupToast: z
       .boolean()
       .optional()
       .describe(
-        'Disable automatic installation of plugin updates when false. Defaults to true.',
+        'Show the startup activation toast when OpenCode starts. Defaults to true.',
+      ),
+    superpowersSkillsDir: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe(
+        'Absolute path to the active Superpowers Lite skills directory. When omitted, the Superpowers bridge overlay is disabled.',
       ),
     manualPlan: ManualPlanSchema.optional(),
     presets: z.record(z.string(), PresetSchema).optional(),
@@ -349,8 +325,6 @@ export const PluginConfigSchema = z
     tmux: TmuxConfigSchema.optional(),
     websearch: WebsearchConfigSchema.optional(),
     interview: InterviewConfigSchema.optional(),
-    sessionManager: SessionManagerConfigSchema.optional(),
-    divoom: DivoomConfigSchema.optional(),
     todoContinuation: TodoContinuationConfigSchema.optional(),
     subtask: SubtaskConfigSchema.optional(),
     fallback: FailoverConfigSchema.optional(),

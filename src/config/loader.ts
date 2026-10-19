@@ -200,8 +200,6 @@ export function mergePluginConfigs(
     tmux: deepMerge(base.tmux, override.tmux),
     multiplexer: deepMerge(base.multiplexer, override.multiplexer),
     interview: deepMerge(base.interview, override.interview),
-    sessionManager: deepMerge(base.sessionManager, override.sessionManager),
-    divoom: deepMerge(base.divoom, override.divoom),
     fallback: deepMerge(base.fallback, override.fallback),
     council: deepMerge(base.council, override.council),
     subtask: deepMerge(base.subtask, override.subtask),

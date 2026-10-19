@@ -115,74 +115,6 @@ PATCH`,
     });
   });
 
-  test('passes through an absolute target outside root/worktree before native execution', async () => {
-    const root = await createTempDir('apply-patch-hook-');
-    const outsideDir = await createTempDir('apply-patch-hook-outside-');
-    const outsidePath = path.join(outsideDir, 'outside.txt');
-    await writeFile(outsidePath, 'outside\n', 'utf-8');
-    const hook = createApplyPatchHook({
-      client: {} as never,
-      directory: root,
-      worktree: root,
-    } as never);
-    const patchText = `*** Begin Patch
-*** Update File: ${outsidePath}
-@@
--outside
-+changed
-*** End Patch`;
-    const output = { args: { patchText } };
-
-    await expect(
-      hook['tool.execute.before'](
-        { tool: 'apply_patch', directory: root },
-        output,
-      ),
-    ).resolves.toBeUndefined();
-
-    expect(output.args.patchText).toBe(patchText);
-    expect(await readFile(outsidePath, 'utf-8')).toBe('outside\n');
-  });
-
-  test('passes through mixed stale inside and absolute outside patch without partial rewrite', async () => {
-    const root = await createTempDir('apply-patch-hook-');
-    const outsideDir = await createTempDir('apply-patch-hook-outside-');
-    const outsidePath = path.join(outsideDir, 'outside.txt');
-    await writeFixture(root, 'sample.txt', 'prefix\nstale-value\nsuffix\n');
-    await writeFile(outsidePath, 'outside\n', 'utf-8');
-    const hook = createApplyPatchHook({
-      client: {} as never,
-      directory: root,
-      worktree: root,
-    } as never);
-    const patchText = `*** Begin Patch
-*** Update File: sample.txt
-@@
- prefix
--old-value
-+new-value
- suffix
-*** Update File: ${outsidePath}
-@@
--outside
-+changed
-*** End Patch`;
-    const output = { args: { patchText } };
-
-    await expect(
-      hook['tool.execute.before'](
-        { tool: 'apply_patch', directory: root },
-        output,
-      ),
-    ).resolves.toBeUndefined();
-
-    expect(output.args.patchText).toBe(patchText);
-    expect(await readFile(path.join(root, 'sample.txt'), 'utf-8')).toBe(
-      'prefix\nstale-value\nsuffix\n',
-    );
-    expect(await readFile(outsidePath, 'utf-8')).toBe('outside\n');
-  });
-
   test('rewrites a stale prefix patch and remains applicable', async () => {
     const root = await createTempDir('apply-patch-hook-');
     await writeFixture(
@@ -458,31 +390,34 @@ garbage
     expect(output.args.patchText).toBe(patchText);
   });
 
-  test('blocks internal guard errors before native execution', async () => {
-    const root = await createTempDir('apply-patch-hook-');
-    const lockedDir = path.join(root, 'locked');
-    await mkdir(lockedDir, { recursive: true });
-    await chmod(lockedDir, 0o000);
-    const hook = createHook();
-    const patchText = `*** Begin Patch
+  test.skipIf(process.platform === 'win32')(
+    'blocks internal guard errors before native execution',
+    async () => {
+      const root = await createTempDir('apply-patch-hook-');
+      const lockedDir = path.join(root, 'locked');
+      await mkdir(lockedDir, { recursive: true });
+      await chmod(lockedDir, 0o000);
+      const hook = createHook();
+      const patchText = `*** Begin Patch
 *** Add File: locked/child.txt
 +fresh
 *** End Patch`;
-    const output = { args: { patchText } };
+      const output = { args: { patchText } };
 
-    try {
-      await expect(
-        hook['tool.execute.before'](
-          { tool: 'apply_patch', directory: root },
-          output,
-        ),
-      ).rejects.toThrow('apply_patch internal error:');
+      try {
+        await expect(
+          hook['tool.execute.before'](
+            { tool: 'apply_patch', directory: root },
+            output,
+          ),
+        ).rejects.toThrow('apply_patch internal error:');
 
-      expect(output.args.patchText).toBe(patchText);
-    } finally {
-      await chmod(lockedDir, 0o755);
-    }
-  });
+        expect(output.args.patchText).toBe(patchText);
+      } finally {
+        await chmod(lockedDir, 0o755);
+      }
+    },
+  );
 
   test('blocks a dangerous indented case as verification', async () => {
     const root = await createTempDir('apply-patch-hook-');
@@ -679,13 +614,38 @@ garbage
     );
   });
 
-  test('passes through sibling-directory targets outside root/worktree before native execution', async () => {
+  test('leaves outside-workspace patches unchanged for native OpenCode', async () => {
     const root = await createTempDir('apply-patch-hook-');
     const outside = path.join(path.dirname(root), 'outside.txt');
     await writeFile(outside, 'outside\n', 'utf-8');
     const hook = createHook();
     const patchText = `*** Begin Patch
 *** Update File: ../outside.txt
+@@
+-outside
++changed
+*** End Patch`;
+    const output = { args: { patchText } };
+
+    await expect(
+      hook['tool.execute.before'](
+        { tool: 'apply_patch', directory: root },
+        output,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(output.args.patchText).toBe(patchText);
+    expect(await readFile(outside, 'utf-8')).toBe('outside\n');
+  });
+
+  test('leaves absolute outside-workspace patches unchanged for native OpenCode', async () => {
+    const root = await createTempDir('apply-patch-hook-');
+    const outsideRoot = await createTempDir('apply-patch-hook-outside-');
+    const outside = path.join(outsideRoot, 'outside.txt');
+    await writeFile(outside, 'outside\n', 'utf-8');
+    const hook = createHook();
+    const patchText = `*** Begin Patch
+*** Update File: ${outside}
 @@
 -outside
 +changed
@@ -733,7 +693,7 @@ garbage
     });
   });
 
-  test('passes through mixed patches with outside paths without partial rewrite', async () => {
+  test('leaves mixed outside-workspace patches unchanged for native OpenCode', async () => {
     const root = await createTempDir('apply-patch-hook-');
     const outsideDir = await createTempDir('apply-patch-hook-outside-');
     await writeFixture(root, 'sample.txt', 'prefix\nstale-value\nsuffix\n');

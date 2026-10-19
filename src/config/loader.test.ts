@@ -81,7 +81,21 @@ describe('loadPluginConfig', () => {
     expect(config.balanceProviderUsage).toBe(true);
   });
 
-  test('loads autoUpdate flag when configured', () => {
+  test('loads superpowersSkillsDir when configured', () => {
+    const projectDir = path.join(tempDir, 'project');
+    const projectConfigDir = path.join(projectDir, '.opencode');
+    fs.mkdirSync(projectConfigDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectConfigDir, 'oh-my-opencode-slim.json'),
+      JSON.stringify({ superpowersSkillsDir: 'D:\\superpowers-lite\\skills' }),
+    );
+
+    expect(loadPluginConfig(projectDir).superpowersSkillsDir).toBe(
+      'D:\\superpowers-lite\\skills',
+    );
+  });
+
+  test('strips unsupported autoUpdate flag when configured', () => {
     const projectDir = path.join(tempDir, 'project');
     const projectConfigDir = path.join(projectDir, '.opencode');
     fs.mkdirSync(projectConfigDir, { recursive: true });
@@ -93,7 +107,7 @@ describe('loadPluginConfig', () => {
     );
 
     const config = loadPluginConfig(projectDir);
-    expect(config.autoUpdate).toBe(false);
+    expect(config.autoUpdate).toBeUndefined();
   });
 
   test('loads manual plan structure when configured', () => {
@@ -597,6 +611,27 @@ describe('deepMerge behavior', () => {
 
     // disabled_mcps should be from project (overwrites, not merges)
     expect(config.disabled_mcps).toEqual(['context7']);
+  });
+
+  test('project superpowersSkillsDir overrides the user value', () => {
+    const userOpencodeDir = path.join(userConfigDir, 'opencode');
+    fs.mkdirSync(userOpencodeDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(userOpencodeDir, 'oh-my-opencode-slim.json'),
+      JSON.stringify({ superpowersSkillsDir: 'C:\\user\\skills' }),
+    );
+
+    const projectDir = path.join(tempDir, 'project');
+    const projectConfigDir = path.join(projectDir, '.opencode');
+    fs.mkdirSync(projectConfigDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectConfigDir, 'oh-my-opencode-slim.json'),
+      JSON.stringify({ superpowersSkillsDir: 'D:\\project\\skills' }),
+    );
+
+    expect(loadPluginConfig(projectDir).superpowersSkillsDir).toBe(
+      'D:\\project\\skills',
+    );
   });
 
   test('handles missing user config gracefully', () => {

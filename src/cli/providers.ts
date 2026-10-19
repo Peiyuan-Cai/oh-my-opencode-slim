@@ -3,7 +3,7 @@ import { CUSTOM_SKILLS } from './custom-skills';
 import type { InstallConfig } from './types';
 
 const SCHEMA_URL =
-  'https://unpkg.com/oh-my-opencode-slim@latest/oh-my-opencode-slim.schema.json';
+  'https://raw.githubusercontent.com/Peiyuan-Cai/oh-my-opencode-slim/feat/opencode-v2-compat/oh-my-opencode-slim.schema.json';
 
 export const GENERATED_PRESETS = ['openai', 'opencode-go'] as const;
 

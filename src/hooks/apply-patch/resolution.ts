@@ -1,9 +1,9 @@
 import * as fs from 'node:fs/promises';
 
 import {
-  matchPreparedAutoRescueComparator,
+  autoRescueComparators,
+  list,
   prefix,
-  prepareAutoRescueTarget,
   rescueByLcs,
   rescueByPrefixSuffix,
   seek,
@@ -80,38 +80,31 @@ function resolveUniqueAnchor(
       comparator: MatchComparatorName;
       canonicalLine: string;
     } {
-  let matchedIndex: number | undefined;
-  let matchedComparator: MatchComparatorName | undefined;
-  const anchorTarget = prepareAutoRescueTarget(changeContext);
+  const hits = new Set<number>();
 
-  for (let index = start; index < lines.length; index += 1) {
-    const comparator = matchPreparedAutoRescueComparator(
-      lines[index],
-      anchorTarget,
-    );
-    if (!comparator) {
-      continue;
+  for (const same of autoRescueComparators) {
+    for (const index of list(lines, [changeContext], start, same)) {
+      hits.add(index);
     }
-
-    if (matchedIndex !== undefined) {
-      return { kind: 'ambiguous' };
-    }
-
-    matchedIndex = index;
-    matchedComparator = comparator;
   }
 
-  if (matchedIndex === undefined) {
+  if (hits.size === 0) {
     return { kind: 'missing' };
   }
 
-  const canonicalLine = lines[matchedIndex];
+  if (hits.size > 1) {
+    return { kind: 'ambiguous' };
+  }
+
+  const index = [...hits][0];
+  const canonicalLine = lines[index];
+  const comparator = seekMatch(lines, [changeContext], index)?.comparator;
 
   return {
     kind: 'match',
-    index: matchedIndex,
+    index,
     exact: canonicalLine === changeContext,
-    comparator: matchedComparator ?? 'exact',
+    comparator: comparator ?? 'exact',
     canonicalLine,
   };
 }
@@ -329,13 +322,10 @@ function resolveUpdateChunksFromFileLines(
         old_lines: [],
         canonical_old_lines: [anchor],
         canonical_new_lines: [...chunk.new_lines, anchor],
-        canonical_change_context: anchorMatch.exact
-          ? undefined
-          : anchorMatch.canonicalLine,
         resolved_is_end_of_file: insertAt + 1 === lines.length,
         rewritten: true,
         strategy,
-        matchComparator: anchorMatch.comparator,
+        matchComparator: 'exact',
       });
       start = insertAt;
       continue;

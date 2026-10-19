@@ -4,18 +4,16 @@ import {
   createInternalAgentTextPart,
   log,
   SLIM_INTERNAL_INITIATOR_MARKER,
-  withTimeout,
 } from '../../utils';
+import { isOrchestratorAgent } from '../../utils/orchestrator-identity';
+import { type PromptBody, parseModelReference } from '../../utils/session';
 import { createTodoHygiene } from './todo-hygiene';
 
 const HOOK_NAME = 'todo-continuation';
 const COMMAND_NAME = 'auto-continue';
-const TODO_STATE_TIMEOUT_MS = 500;
 
 const CONTINUATION_PROMPT =
   '[Auto-continue: enabled - there are incomplete todos remaining. Continue with the next uncompleted item. Press Esc to cancel. If you need user input or review for the next item, ask instead of proceeding.]';
-const TODO_HYGIENE_INSTRUCTION_OPEN = '<instruction name="todo_hygiene">';
-const TODO_HYGIENE_INSTRUCTION_CLOSE = '</instruction>';
 
 // Suppress window after user abort (Esc/Ctrl+C) to avoid immediately
 // re-continuing something the user explicitly stopped
@@ -94,13 +92,6 @@ interface ChatTransformMessage {
   parts: MessagePart[];
 }
 
-interface LastExternalUserMessage {
-  sessionID?: string;
-  agent?: string;
-  signature: string;
-  message: ChatTransformMessage;
-}
-
 interface Message {
   info?: MessageInfo;
   parts?: MessagePart[];
@@ -123,45 +114,6 @@ function resetState(state: ContinuationState): void {
   state.notificationBusyUntilBySession.clear();
 }
 
-function stripTodoHygieneInstruction(text: string): string {
-  const trimmed = text.trimEnd();
-  if (!trimmed.endsWith(TODO_HYGIENE_INSTRUCTION_CLOSE)) {
-    return trimmed;
-  }
-
-  const start = trimmed.lastIndexOf(TODO_HYGIENE_INSTRUCTION_OPEN);
-  if (start === -1) {
-    return trimmed;
-  }
-
-  return trimmed.slice(0, start).trimEnd();
-}
-
-function appendTodoHygieneInstruction(
-  message: ChatTransformMessage,
-  reminder: string,
-): void {
-  const textPart = [...message.parts]
-    .reverse()
-    .find((part) => part.type === 'text' && typeof part.text === 'string');
-  if (!textPart) return;
-
-  const baseText = stripTodoHygieneInstruction(textPart.text ?? '');
-  const instruction = `${TODO_HYGIENE_INSTRUCTION_OPEN}\n${reminder}\n${TODO_HYGIENE_INSTRUCTION_CLOSE}`;
-  textPart.text = baseText ? `${baseText}\n\n${instruction}` : instruction;
-}
-
-function stripTodoHygieneInstructionFromMessage(
-  message: ChatTransformMessage,
-): void {
-  const textPart = [...message.parts]
-    .reverse()
-    .find((part) => part.type === 'text' && typeof part.text === 'string');
-  if (!textPart) return;
-
-  textPart.text = stripTodoHygieneInstruction(textPart.text ?? '');
-}
-
 export function createTodoContinuationHook(
   ctx: PluginInput,
   config?: {
@@ -169,15 +121,25 @@ export function createTodoContinuationHook(
     cooldownMs?: number;
     autoEnable?: boolean;
     autoEnableThreshold?: number;
+    /** V2 has no transient status-message inbox; do not queue countdown text. */
+    notify?: boolean;
+    /** Return the runtime agent name for a session (e.g. 'orchestrator-beta').
+     *  Used to preserve variant identity when auto-continue resumes a session. */
+    getSessionAgent?: (sessionID: string) => string | undefined;
+    /** Return the last-observed model string for a session ("provider/model").
+     *  Used to preserve user-selected model overrides on auto-continue resume. */
+    getSessionModel?: (sessionID: string) => string | undefined;
   },
 ): {
   tool: Record<string, unknown>;
-  handleToolExecuteAfter: (
-    input: {
-      tool: string;
-      sessionID?: string;
-    },
-    output?: { output?: unknown },
+  dispose: () => void;
+  handleToolExecuteAfter: (input: {
+    tool: string;
+    sessionID?: string;
+  }) => Promise<void>;
+  handleChatSystemTransform: (
+    input: { sessionID?: string },
+    output: { system: string[] },
   ) => Promise<void>;
   handleMessagesTransform: (output: {
     messages: ChatTransformMessage[];
@@ -214,20 +176,12 @@ export function createTodoContinuationHook(
     notificationBusyUntilBySession: new Map<string, number>(),
   };
 
-  async function fetchTodos(sessionID: string): Promise<TodoItem[]> {
-    const result = await withTimeout(
-      ctx.client.session.todo({
-        path: { id: sessionID },
-      }),
-      TODO_STATE_TIMEOUT_MS,
-      `Todo state lookup timed out after ${TODO_STATE_TIMEOUT_MS}ms`,
-    );
-    return result.data as TodoItem[];
-  }
-
   const hygiene = createTodoHygiene({
     getTodoState: async (sessionID) => {
-      const todos = await fetchTodos(sessionID);
+      const result = await ctx.client.session.todo({
+        path: { id: sessionID },
+      });
+      const todos = result.data as TodoItem[];
       const openTodos = todos.filter(
         (todo) => !TERMINAL_TODO_STATUSES.includes(todo.status),
       );
@@ -304,9 +258,11 @@ export function createTodoContinuationHook(
     );
   }
 
-  function getLastExternalUserMessage(
-    messages: ChatTransformMessage[],
-  ): LastExternalUserMessage | null {
+  function getLastExternalUserMessage(messages: ChatTransformMessage[]): {
+    sessionID?: string;
+    agent?: string;
+    signature: string;
+  } | null {
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i];
       if (!isExternalUserMessage(message)) {
@@ -318,8 +274,7 @@ export function createTodoContinuationHook(
       const partSignature = message.parts
         .map((part) => {
           if (part.type === 'text' && typeof part.text === 'string') {
-            const text = stripTodoHygieneInstruction(part.text);
-            return `${part.type}:${text.includes(SLIM_INTERNAL_INITIATOR_MARKER) ? '<internal>' : text.trim()}`;
+            return `${part.type}:${part.text.includes(SLIM_INTERNAL_INITIATOR_MARKER) ? '<internal>' : part.text.trim()}`;
           }
           return part.type ?? 'unknown';
         })
@@ -331,7 +286,6 @@ export function createTodoContinuationHook(
       return {
         sessionID,
         agent: message.info.agent,
-        message,
         signature: message.info.id
           ? `${message.info.id}:${partSignature}`
           : `${ordinal}:${partSignature}`,
@@ -349,7 +303,7 @@ export function createTodoContinuationHook(
       return;
     }
 
-    if (lastUserMessage.agent && lastUserMessage.agent !== 'orchestrator') {
+    if (lastUserMessage.agent && !isOrchestratorAgent(lastUserMessage.agent)) {
       return;
     }
 
@@ -362,7 +316,7 @@ export function createTodoContinuationHook(
     }
 
     const knownOrchestrator = isOrchestratorSession(lastUserMessage.sessionID);
-    if (lastUserMessage.agent === 'orchestrator') {
+    if (isOrchestratorAgent(lastUserMessage.agent)) {
       registerOrchestratorSession(lastUserMessage.sessionID);
     } else if (!knownOrchestrator) {
       return;
@@ -372,12 +326,6 @@ export function createTodoContinuationHook(
       requestSignatureBySession.get(lastUserMessage.sessionID) ===
       lastUserMessage.signature
     ) {
-      const reminder = hygiene.getPendingReminder(lastUserMessage.sessionID);
-      if (reminder) {
-        appendTodoHygieneInstruction(lastUserMessage.message, reminder);
-      } else {
-        stripTodoHygieneInstructionFromMessage(lastUserMessage.message);
-      }
       return;
     }
 
@@ -385,7 +333,6 @@ export function createTodoContinuationHook(
       lastUserMessage.sessionID,
       lastUserMessage.signature,
     );
-    stripTodoHygieneInstructionFromMessage(lastUserMessage.message);
     hygiene.handleRequestStart({ sessionID: lastUserMessage.sessionID });
   }
 
@@ -436,7 +383,7 @@ export function createTodoContinuationHook(
     }
 
     state.sawChatMessage = true;
-    if (input.agent === 'orchestrator') {
+    if (isOrchestratorAgent(input.agent)) {
       registerOrchestratorSession(input.sessionID);
     }
   }
@@ -510,7 +457,10 @@ export function createTodoContinuationHook(
       // todos exist, automatically enable auto-continue.
       if (autoEnable && !state.enabled) {
         try {
-          const todos = await fetchTodos(sessionID);
+          const todosResult = await ctx.client.session.todo({
+            path: { id: sessionID },
+          });
+          const todos = todosResult.data as TodoItem[];
           const incompleteCount = todos.filter(
             (t) => !TERMINAL_TODO_STATUSES.includes(t.status),
           ).length;
@@ -551,7 +501,10 @@ export function createTodoContinuationHook(
       let hasIncompleteTodos = false;
       let incompleteCount = 0;
       try {
-        const todos = await fetchTodos(sessionID);
+        const todosResult = await ctx.client.session.todo({
+          path: { id: sessionID },
+        });
+        const todos = todosResult.data as TodoItem[];
         incompleteCount = todos.filter(
           (t) => !TERMINAL_TODO_STATUSES.includes(t.status),
         ).length;
@@ -644,31 +597,46 @@ export function createTodoContinuationHook(
         delayMs: cooldownMs,
       });
 
-      // Show countdown notification (noReply = agent doesn't respond)
-      markNotificationStarted(sessionID);
-      ctx.client.session
-        .prompt({
-          path: { id: sessionID },
-          body: {
-            noReply: true,
-            parts: [
-              {
-                type: 'text',
-                text: [
-                  `⎔ Auto-continue: ${incompleteCount} incomplete todos remaining — resuming in ${cooldownMs / 1000}s — Esc×2 to cancel`,
-                  '',
-                  '[system status: continue without acknowledging this notification]',
-                ].join('\n'),
-              },
-            ],
-          },
-        })
-        .catch(() => {
-          /* best-effort notification */
-        })
-        .finally(() => {
-          markNotificationFinished(sessionID);
-        });
+      // Show countdown notification (noReply = agent doesn't respond).
+      // Include agent+model so the notification row in OpenCode's TUI
+      // preserves the session's variant identity rather than reverting to
+      // the JSONC-defined default orchestrator.
+      if (config?.notify !== false) {
+        markNotificationStarted(sessionID);
+        const notifyAgent = config?.getSessionAgent?.(sessionID);
+        const notifyModelStr = config?.getSessionModel?.(sessionID);
+        const notifyModel = notifyModelStr
+          ? parseModelReference(notifyModelStr)
+          : undefined;
+
+        const notifyBody: PromptBody = {
+          noReply: true,
+          parts: [
+            {
+              type: 'text',
+              text: [
+                `⎔ Auto-continue: ${incompleteCount} incomplete todos remaining — resuming in ${cooldownMs / 1000}s — Esc×2 to cancel`,
+                '',
+                '[system status: continue without acknowledging this notification]',
+              ].join('\n'),
+            },
+          ],
+        };
+        if (notifyAgent) notifyBody.agent = notifyAgent;
+        if (notifyModel) notifyBody.model = notifyModel;
+
+        ctx.client.session
+          .prompt({
+            path: { id: sessionID },
+            body: notifyBody,
+          })
+          .catch(() => {
+            /* best-effort notification */
+          })
+          .finally(() => {
+            markNotificationFinished(sessionID);
+          });
+      }
 
       state.pendingTimerSessionId = sessionID;
       state.pendingTimer = setTimeout(async () => {
@@ -686,11 +654,23 @@ export function createTodoContinuationHook(
 
         state.isAutoInjecting = true;
         try {
+          // Preserve the session's active agent and model so auto-continue
+          // does not revert to the JSON-defined default.  Variants
+          // (orchestrator-beta, orchestrator-delta, etc.) and temporary
+          // model overrides survive across continuation prompts.
+          const agent = config?.getSessionAgent?.(sessionID);
+          const modelStr = config?.getSessionModel?.(sessionID);
+          const model = modelStr ? parseModelReference(modelStr) : undefined;
+
+          const body: PromptBody = {
+            parts: [createInternalAgentTextPart(CONTINUATION_PROMPT)],
+          };
+          if (agent) body.agent = agent;
+          if (model) body.model = model;
+
           await ctx.client.session.prompt({
             path: { id: sessionID },
-            body: {
-              parts: [createInternalAgentTextPart(CONTINUATION_PROMPT)],
-            },
+            body,
           });
           state.consecutiveContinuations++;
           log(`[${HOOK_NAME}] Continuation injected`, {
@@ -842,7 +822,10 @@ export function createTodoContinuationHook(
     // Check for incomplete todos to decide on immediate continuation
     let hasIncompleteTodos = false;
     try {
-      const todos = await fetchTodos(input.sessionID);
+      const todosResult = await ctx.client.session.todo({
+        path: { id: input.sessionID },
+      });
+      const todos = todosResult.data as TodoItem[];
       hasIncompleteTodos = todos.some(
         (t) => !TERMINAL_TODO_STATUSES.includes(t.status),
       );
@@ -869,8 +852,13 @@ export function createTodoContinuationHook(
   }
 
   return {
+    dispose: () => {
+      state.enabled = false;
+      resetState(state);
+    },
     tool: { auto_continue: autoContinue },
     handleToolExecuteAfter: hygiene.handleToolExecuteAfter,
+    handleChatSystemTransform: hygiene.handleChatSystemTransform,
     handleMessagesTransform,
     handleEvent,
     handleChatMessage,

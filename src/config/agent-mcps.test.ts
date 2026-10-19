@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { DEFAULT_AGENT_MCPS, parseList } from './agent-mcps';
+import {
+  buildAgentMcpPermissionRules,
+  DEFAULT_AGENT_MCPS,
+  getManagedMcpNames,
+  parseList,
+} from './agent-mcps';
 
 describe('parseList', () => {
   test('empty list returns empty array', () => {
@@ -50,5 +55,25 @@ describe('parseList', () => {
 
   test('exclusions without matching allows', () => {
     expect(parseList(['!mcp2'], ['mcp1', 'mcp2', 'mcp3'])).toEqual([]);
+  });
+
+  test('managed permission rules ignore custom mcps', () => {
+    const rules = buildAgentMcpPermissionRules([], {
+      websearch: true,
+      context7: true,
+      grep_app: true,
+      'windows-mcp': true,
+    });
+
+    expect(rules).toEqual({
+      'websearch_*': 'deny',
+      'context7_*': 'deny',
+      'grep_app_*': 'deny',
+    });
+    expect('windows-mcp' in rules).toBe(false);
+  });
+
+  test('managed mcp names are built-in only', () => {
+    expect(getManagedMcpNames()).toEqual(['websearch', 'context7', 'grep_app']);
   });
 });

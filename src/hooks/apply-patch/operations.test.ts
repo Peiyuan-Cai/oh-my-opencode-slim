@@ -26,7 +26,6 @@ describe('apply-patch/operations', () => {
   test('preparePatchChanges and applyPreparedChanges apply an exact match', async () => {
     const root = await createTempDir();
     await writeFixture(root, 'sample.txt', 'alpha\nbeta\ngamma\n');
-    await chmod(path.join(root, 'sample.txt'), 0o750);
 
     await applyPatch(
       root,
@@ -41,10 +40,31 @@ describe('apply-patch/operations', () => {
     );
 
     expect(await readText(root, 'sample.txt')).toBe('alpha\nBETA\ngamma\n');
-    expect((await stat(path.join(root, 'sample.txt'))).mode & 0o777).toBe(
-      0o750,
-    );
   });
+
+  test.skipIf(process.platform === 'win32')(
+    'preserves the source mode for an exact match',
+    async () => {
+      const root = await createTempDir();
+      const target = path.join(root, 'sample.txt');
+      await writeFixture(root, 'sample.txt', 'alpha\nbeta\ngamma\n');
+      await chmod(target, 0o750);
+
+      await applyPatch(
+        root,
+        `*** Begin Patch
+*** Update File: sample.txt
+@@
+ alpha
+-beta
++BETA
+ gamma
+*** End Patch`,
+      );
+
+      expect((await stat(target)).mode & 0o777).toBe(0o750);
+    },
+  );
 
   test('rewritePatchText leaves a healthy patch intact', async () => {
     const root = await createTempDir();
@@ -67,6 +87,8 @@ describe('apply-patch/operations', () => {
     expect(await rewritePatch(root, patchText, DEFAULT_OPTIONS)).toMatchObject({
       patchText,
       changed: false,
+      rewrittenChunks: 0,
+      rewriteModes: [],
     });
   });
 
@@ -94,6 +116,8 @@ PATCH`;
     expect(await rewritePatch(root, patchText, DEFAULT_OPTIONS)).toMatchObject({
       patchText: cleanPatchText,
       changed: true,
+      rewrittenChunks: 0,
+      rewriteModes: ['normalize:patch-text'],
     });
   });
 
@@ -366,6 +390,7 @@ garbage
     );
 
     expect(rewritten.changed).toBeTrue();
+    expect(rewritten.rewriteModes).toContain('normalize:patch-paths');
     const [rewrittenHunk] = parsePatch(rewritten.patchText).hunks;
     expect(rewrittenHunk.type).toBe('update');
     expect(rewrittenHunk.path).toBe('sample.txt');
@@ -809,6 +834,7 @@ garbage
 
     const rewritten = parsePatch(result.patchText);
     expect(result.changed).toBeTrue();
+    expect(result.rewriteModes).toContain('merge:same-file-updates');
     expect(rewritten.hunks).toHaveLength(1);
     expect(rewritten.hunks[0]).toEqual({
       type: 'update',
@@ -898,6 +924,7 @@ garbage
     );
 
     expect(result.changed).toBeTrue();
+    expect(result.rewriteModes).toContain('collapse:add-followed-by-update');
     expect(parsePatch(result.patchText).hunks).toEqual([
       {
         type: 'add',
@@ -927,6 +954,7 @@ garbage
     );
 
     expect(result.changed).toBeTrue();
+    expect(result.rewriteModes).toContain('collapse:add-followed-by-update');
     expect(parsePatch(result.patchText).hunks).toEqual([
       {
         type: 'add',
@@ -961,6 +989,7 @@ garbage
     );
 
     expect(result.changed).toBeTrue();
+    expect(result.rewriteModes).toContain('collapse:move-followed-by-update');
     expect(parsePatch(result.patchText).hunks).toEqual([
       {
         type: 'update',
@@ -1002,6 +1031,7 @@ garbage
     );
 
     expect(result.changed).toBeTrue();
+    expect(result.rewriteModes).toContain('collapse:move-followed-by-update');
     expect(parsePatch(result.patchText).hunks).toEqual([
       {
         type: 'update',
@@ -1101,7 +1131,6 @@ garbage
     const root = await createTempDir();
     await writeFixture(root, 'first.txt', 'one\n');
     await writeFixture(root, 'blocker', 'not-a-dir\n');
-    await chmod(path.join(root, 'first.txt'), 0o755);
 
     await expect(
       applyPreparedChanges([
@@ -1121,15 +1150,39 @@ garbage
     );
 
     expect(await readText(root, 'first.txt')).toBe('one\n');
-    expect((await stat(path.join(root, 'first.txt'))).mode & 0o777).toBe(0o755);
     expect(await readText(root, 'blocker')).toBe('not-a-dir\n');
     await expect(readText(root, 'blocker/second.txt')).rejects.toThrow();
   });
 
-  test('applyPreparedChanges supports update with move_path and preserves the source mode', async () => {
+  test.skipIf(process.platform === 'win32')(
+    'preserves the source mode when a later prepared change fails',
+    async () => {
+      const root = await createTempDir();
+      const source = path.join(root, 'first.txt');
+      await writeFixture(root, 'first.txt', 'one\n');
+      await writeFixture(root, 'blocker', 'not-a-dir\n');
+      await chmod(source, 0o755);
+
+      await expect(
+        applyPreparedChanges([
+          { type: 'update', file: source, text: 'ONE\n' },
+          {
+            type: 'add',
+            file: path.join(root, 'blocker', 'second.txt'),
+            text: 'two\n',
+          },
+        ]),
+      ).rejects.toThrow(
+        'apply_patch internal error: Failed to apply prepared changes',
+      );
+
+      expect((await stat(source)).mode & 0o777).toBe(0o755);
+    },
+  );
+
+  test('applyPreparedChanges supports update with move_path', async () => {
     const root = await createTempDir();
     await writeFixture(root, 'before.txt', 'alpha\nbeta\ngamma\n');
-    await chmod(path.join(root, 'before.txt'), 0o755);
 
     const changes = await preparePatchChanges(
       root,
@@ -1149,9 +1202,6 @@ garbage
     expect(await readText(root, 'nested/after.txt')).toBe(
       'alpha\nBETA\ngamma\n',
     );
-    expect((await stat(path.join(root, 'nested/after.txt'))).mode & 0o777).toBe(
-      0o755,
-    );
     await expect(readText(root, 'before.txt')).rejects.toThrow();
     expect(changes[0]).toMatchObject({
       type: 'update',
@@ -1159,6 +1209,34 @@ garbage
       move: path.join(root, 'nested/after.txt'),
     });
   });
+
+  test.skipIf(process.platform === 'win32')(
+    'preserves the source mode for an update with move_path',
+    async () => {
+      const root = await createTempDir();
+      const source = path.join(root, 'before.txt');
+      const target = path.join(root, 'nested/after.txt');
+      await writeFixture(root, 'before.txt', 'alpha\nbeta\ngamma\n');
+      await chmod(source, 0o755);
+
+      const changes = await preparePatchChanges(
+        root,
+        `*** Begin Patch
+*** Update File: before.txt
+*** Move to: nested/after.txt
+@@
+ alpha
+-beta
++BETA
+ gamma
+*** End Patch`,
+        DEFAULT_OPTIONS,
+      );
+      await applyPreparedChanges(changes);
+
+      expect((await stat(target)).mode & 0o777).toBe(0o755);
+    },
+  );
 
   test('applyPreparedChanges rejects direct update on a missing source', async () => {
     const root = await createTempDir();

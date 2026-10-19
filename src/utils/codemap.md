@@ -8,7 +8,7 @@ Cross-cutting runtime utilities used by orchestration, hooks, and plugin I/O.
 - **subagent-depth.ts**: Tracks delegated session depth and enforces max nested delegation depth.
 - **agent-variant.ts**: Normalizes agent names and applies optional variant labels without overriding existing body configuration.
 - **env.ts**: Unified environment lookup across Bun/Node with empty-string filtering.
-- **session-manager.ts**: Tracks resumable `task` tool sessions by parent session + agent type, normalizes user labels, assigns stable short aliases, and exposes prompt rendering/eviction behavior.
+- **session-manager.ts**: Legacy session-alias store utility retained in source with unit coverage; no runtime hook registers it in this staging refresh.
 - **session.ts**: Session extraction helpers for multi-turn synthesis and prompt/result post-processing.
 - **polling.ts**: Shared polling with stability thresholds and abort-signal support.
 - **zip-extractor.ts**: Cross-platform zip/tar extraction with Windows fallback tooling.
@@ -22,7 +22,7 @@ Cross-cutting runtime utilities used by orchestration, hooks, and plugin I/O.
 ## Design
 
 - **Deterministic lifecycle tracking**: `SubagentDepthTracker` maps session IDs → depth and is cleaned on session deletion.
-- **Parent-scoped resumable session store**: `SessionManager` groups tasks by `{parentSessionId, agentType}` and maintains LRU-ish ordering by last-used counter so active resumable sessions stay in memory.
+- **Session-alias store utility**: `SessionManager` groups task IDs by `{parentSessionId, agentType}` and maintains LRU-ish ordering by last-used counter for callers that explicitly instantiate it.
 - **Provider-safe env access**: `getEnv` falls back from `Bun.env` to `process.env` and normalizes blank values.
 - **Graceful shutdown protocol**: Multiplexer pane close path sends Ctrl+C before kill, then rebalances layout state.
 - **Session extraction model**: `extractSessionResult`/`parseModelReference` style helpers are centralized under `session.ts`.
@@ -46,7 +46,7 @@ Cross-cutting runtime utilities used by orchestration, hooks, and plugin I/O.
 - `remember` creates/reuses entries keyed by `{parentSessionId, agentType}` and enforces a per-agent max via `trimGroup`.
 - Alias generation is monotonic within each parent+agent (`exp-1`, `lib-2`, etc.).
 - `markUsed`, `resolve`, `drop`, `dropTask`, `clearParent` keep the store consistent on reuse and teardown.
-- `formatForPrompt` returns grouped and ranked prompt text (`### Resumable Sessions ...`) for use in system transforms.
+- `formatForPrompt` returns grouped and ranked prompt text for callers that need a compact task-session summary.
 
 ### `tmux.ts`
 
@@ -78,7 +78,6 @@ Cross-cutting runtime utilities used by orchestration, hooks, and plugin I/O.
   - `src/multiplexer/*`: `SubagentDepthTracker` and `tmux.ts` integration.
   - `src/council/council-manager.ts`: depth control and session extraction helpers.
   - `src/hooks/*`: marker detection, polling, and session-aware state helpers.
-  - `src/hooks/task-session-manager`: `SessionManager`, `parseTaskIdFromTaskOutput`, and `deriveTaskSessionLabel` provide resumable-session workflow; the plugin’s system-transform passes the hook output through `collapseSystemInPlace` after this manager injects prompts.
 
 - **Dependencies**
   - Pulls constants from `../config` (`DEFAULT_MAX_SUBAGENT_DEPTH`, polling intervals/timeouts).

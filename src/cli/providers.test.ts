@@ -23,7 +23,7 @@ describe('providers', () => {
     });
 
     expect(config.$schema).toBe(
-      'https://unpkg.com/oh-my-opencode-slim@latest/oh-my-opencode-slim.schema.json',
+      'https://raw.githubusercontent.com/Peiyuan-Cai/oh-my-opencode-slim/feat/opencode-v2-compat/oh-my-opencode-slim.schema.json',
     );
     expect(config.preset).toBe('openai');
     expect(config.disabled_agents).toBeUndefined();
@@ -142,8 +142,8 @@ describe('providers', () => {
     // Orchestrator should always have '*'
     expect(agents.orchestrator.skills).toEqual(['*']);
 
-    // Oracle should have bundled simplify
-    expect(agents.oracle.skills).toContain('simplify');
+    // The bridge assigns bundled simplify to fixer, not oracle.
+    expect(agents.oracle.skills).not.toContain('simplify');
 
     // Orchestrator should implicitly cover bundled codemap via '*'
     expect(agents.orchestrator.skills).toContain('*');
@@ -154,8 +154,8 @@ describe('providers', () => {
     // Explorer should have no bundled skills by default
     expect(agents.explorer.skills).toEqual([]);
 
-    // Fixer should have no bundled skills by default
-    expect(agents.fixer.skills).toEqual([]);
+    // Fixer owns bundled simplify in the bridge policy.
+    expect(agents.fixer.skills).toContain('simplify');
   });
 
   test('generateLiteConfig includes mcps field', () => {

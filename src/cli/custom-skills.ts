@@ -31,7 +31,7 @@ export const CUSTOM_SKILLS: CustomSkill[] = [
   {
     name: 'simplify',
     description: 'Code simplification and readability-focused refactoring',
-    allowedAgents: ['oracle'],
+    allowedAgents: ['fixer'],
     sourcePath: 'src/skills/simplify',
   },
   {

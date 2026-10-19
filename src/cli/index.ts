@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
-import { doctor, parseDoctorArgs } from './doctor';
 import { install } from './install';
-import { getGeneratedPresetNames, isGeneratedPresetName } from './providers';
 import type { BooleanArg, InstallArgs } from './types';
 
 function parseArgs(args: string[]): InstallArgs {
@@ -16,14 +14,7 @@ function parseArgs(args: string[]): InstallArgs {
     } else if (arg.startsWith('--skills=')) {
       result.skills = arg.split('=')[1] as BooleanArg;
     } else if (arg.startsWith('--preset=')) {
-      const preset = arg.split('=')[1];
-      if (!isGeneratedPresetName(preset)) {
-        console.error(
-          `Unsupported preset: ${preset}. Available presets: ${getGeneratedPresetNames().join(', ')}`,
-        );
-        process.exit(1);
-      }
-      result.preset = preset;
+      result.preset = arg.split('=')[1];
     } else if (arg === '--dry-run') {
       result.dryRun = true;
     } else if (arg === '--reset') {
@@ -41,25 +32,17 @@ function printHelp(): void {
   console.log(`
 oh-my-opencode-slim installer
 
-Usage:
-  bunx oh-my-opencode-slim install [OPTIONS]
-  bunx oh-my-opencode-slim doctor [OPTIONS]
+Usage: bunx oh-my-opencode-slim install [OPTIONS]
 
 Options:
-  --skills=yes|no        Install bundled skills (default: yes)
-  --preset=<name>        Active generated config preset (default: openai)
+  --skills=yes|no        Install recommended and bundled skills (default: yes)
+  --preset=<name>        Set active model preset (default: openai)
   --no-tui               Non-interactive mode
   --dry-run              Simulate install without writing files
   --reset                Force overwrite of existing configuration
   -h, --help             Show this help message
 
-Doctor options:
-  --json                 Print diagnostics as JSON
-
-Available presets: ${getGeneratedPresetNames().join(', ')}
-
-The installer generates OpenAI and OpenCode Go presets by default.
-OpenAI is active unless --preset selects another generated preset.
+The installer generates an OpenAI configuration by default.
 For the full config reference, see docs/configuration.md.
 
 Examples:
@@ -67,7 +50,6 @@ Examples:
   bunx oh-my-opencode-slim install --no-tui --skills=yes
   bunx oh-my-opencode-slim install --preset=opencode-go
   bunx oh-my-opencode-slim install --reset
-  bunx oh-my-opencode-slim doctor
 `);
 }
 
@@ -78,10 +60,6 @@ async function main(): Promise<void> {
     const hasSubcommand = args[0] === 'install';
     const installArgs = parseArgs(args.slice(hasSubcommand ? 1 : 0));
     const exitCode = await install(installArgs);
-    process.exit(exitCode);
-  } else if (args[0] === 'doctor') {
-    const doctorArgs = parseDoctorArgs(args.slice(1));
-    const exitCode = await doctor(doctorArgs);
     process.exit(exitCode);
   } else if (args[0] === '-h' || args[0] === '--help') {
     printHelp();

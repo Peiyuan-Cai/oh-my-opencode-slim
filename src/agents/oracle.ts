@@ -45,6 +45,13 @@ export function createOracleAgent(
       model,
       temperature: 0.1,
       prompt,
+      permission: {
+        edit: 'deny',
+        write: 'deny',
+        bash: 'deny',
+        task: 'deny',
+        todowrite: 'deny',
+      },
     },
   };
 }

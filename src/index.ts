@@ -1,33 +1,30 @@
 import type { Plugin } from '@opencode-ai/plugin';
-import { createAgents, getAgentConfigs, getDisabledAgents } from './agents';
+import {
+  createAgents,
+  getAgentConfigs,
+  getDisabledAgents,
+  getTaskFallbackShadowName,
+} from './agents';
 import { buildOrchestratorPrompt } from './agents/orchestrator';
-import {
-  type AgentOverrideConfig,
-  deepMerge,
-  loadPluginConfig,
-  type MultiplexerConfig,
-} from './config';
-import { parseList } from './config/agent-mcps';
-import { AGENT_ALIASES } from './config/constants';
+import { decideTaskPreroute } from './agents/preroute-decision';
+import { isOrchestratorAgent } from './cli/superpowers-policy';
+import { loadPluginConfig, type MultiplexerConfig } from './config';
+import { buildAgentMcpPermissionRules } from './config/agent-mcps';
 import { normalizeFallbackChainsForPreset } from './config/fallback-chains';
-import {
-  getActiveRuntimePreset,
-  getPreviousRuntimePreset,
-  setActiveRuntimePreset,
-} from './config/runtime-preset';
+import { getActiveRuntimePreset } from './config/runtime-preset';
+
 import { CouncilManager } from './council';
-import { createDivoomManager } from './divoom/manager';
 import {
   createApplyPatchHook,
   createAutoUpdateCheckerHook,
   createChatHeadersHook,
+  createCostObservatoryStarterHook,
   createDelegateTaskRetryHook,
   createFilterAvailableSkillsHook,
   createJsonErrorRecoveryHook,
   createPhaseReminderHook,
   createPostFileToolNudgeHook,
   createSessionGoalHook,
-  createTaskSessionManagerHook,
   createTodoContinuationHook,
   ForegroundFallbackManager,
 } from './hooks';
@@ -50,12 +47,14 @@ import {
   createSubtaskTool,
   createWebfetchTool,
 } from './tools';
-import { recordTuiAgentModel, recordTuiAgentModels } from './tui-state';
 import {
   createDisplayNameMentionRewriter,
   resolveRuntimeAgentName,
 } from './utils';
 import { initLogger, log } from './utils/logger';
+import { mergeAgentConfig } from './utils/merge-agent-config';
+import { isPivotedRootAgent } from './utils/orchestrator-identity';
+import { extractSessionAgent } from './utils/session';
 import { SubagentDepthTracker } from './utils/subagent-depth';
 import { collapseSystemInPlace } from './utils/system-collapse';
 
@@ -82,6 +81,30 @@ async function appLog(
   }
 }
 
+const ANTHROPIC_PROVIDER_PREFIX = 'gauge-forge-anthropic/';
+
+function isAnthropicPrimaryModel(model: string | undefined): boolean {
+  return (
+    typeof model === 'string' && model.startsWith(ANTHROPIC_PROVIDER_PREFIX)
+  );
+}
+
+function getAnthropicTaskFallbackRoute(
+  agentName: string,
+  models: Array<{ id: string; variant?: string }> | undefined,
+):
+  | {
+      shadowAgentName: string;
+    }
+  | undefined {
+  if (!models || models.length < 2) return undefined;
+  const [primary] = models;
+  if (!isAnthropicPrimaryModel(primary?.id)) return undefined;
+  return {
+    shadowAgentName: getTaskFallbackShadowName(agentName),
+  };
+}
+
 /** Minimum expected registrations for a healthy plugin load. */
 const HEALTH_CHECK = {
   minAgents: 5,
@@ -104,19 +127,14 @@ async function probeJSDOM(): Promise<string | null> {
   }
 }
 
-// Module-level runtime preset tracking. Survives plugin re-inits triggered
-// by client.config.update() → Instance.dispose(). When the plugin function
-// re-runs, it checks this variable and applies the runtime preset instead
-// of the config file's preset. State lives in config/runtime-preset.ts.
-
 const OhMyOpenCodeLite: Plugin = async (ctx) => {
+  const isV2 = (ctx as PluginInputWithFlavor).hostFlavor === 'v2';
   const sessionId = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
   initLogger(sessionId);
 
   // Declare variables that must survive the try/catch for the return
   // closure. These are set inside the try block.
   let config: ReturnType<typeof loadPluginConfig>;
-  let disabledAgents: Set<string>;
   let agentDefs: ReturnType<typeof createAgents>;
   let agents: ReturnType<typeof getAgentConfigs>;
   let mcps: ReturnType<typeof createBuiltinMcps>;
@@ -127,11 +145,21 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
   let depthTracker: SubagentDepthTracker;
   let multiplexerSessionManager: MultiplexerSessionManager;
   let autoUpdateChecker: ReturnType<typeof createAutoUpdateCheckerHook>;
+  let _costObservatoryStarter: ReturnType<
+    typeof createCostObservatoryStarterHook
+  >;
   let phaseReminderHook: ReturnType<typeof createPhaseReminderHook>;
   let filterAvailableSkillsHook: ReturnType<
     typeof createFilterAvailableSkillsHook
   >;
   let sessionAgentMap: Map<string, string>;
+  let sessionRootMap: Map<string, string>;
+  let anthropicTaskFallbacks!: Record<
+    string,
+    {
+      shadowAgentName: string;
+    }
+  >;
   let postFileToolNudgeHook: ReturnType<typeof createPostFileToolNudgeHook>;
   let chatHeadersHook: ReturnType<typeof createChatHeadersHook>;
   let delegateTaskRetryHook: ReturnType<typeof createDelegateTaskRetryHook>;
@@ -140,10 +168,9 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
   let foregroundFallback: ForegroundFallbackManager;
   let todoContinuationHook: ReturnType<typeof createTodoContinuationHook>;
   let sessionGoalHook: ReturnType<typeof createSessionGoalHook>;
-  let taskSessionManagerHook: ReturnType<typeof createTaskSessionManagerHook>;
+
   let interviewManager: ReturnType<typeof createInterviewManager>;
   let presetManager: ReturnType<typeof createPresetManager>;
-  let divoomManager: ReturnType<typeof createDivoomManager>;
   let councilTools: Record<string, unknown>;
   let webfetch: ReturnType<typeof createWebfetchTool>;
   let rewriteDisplayNameMentions: ReturnType<
@@ -157,26 +184,6 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
 
   try {
     config = loadPluginConfig(ctx.directory);
-
-    // Safety net: if a runtime preset was set via /preset command and
-    // OpenCode ever fully re-runs the plugin function (not just the
-    // config() hook), override config.preset so agents are created with
-    // the correct models. Currently only the config() hook re-runs after
-    // Instance.dispose(), so this is a defensive guard.
-    const runtimePreset = getActiveRuntimePreset();
-    if (runtimePreset && config.presets?.[runtimePreset]) {
-      config.preset = runtimePreset;
-      // Re-merge runtime preset into config.agents (loadPluginConfig
-      // already merged the config-file preset, not the runtime one).
-      // Runtime preset is override so it wins over config-file preset.
-      const presetAgents = config.presets[runtimePreset];
-      config.agents = deepMerge(config.agents, presetAgents);
-    } else if (runtimePreset) {
-      // Preset was deleted from config since last switch — clear stale state
-      setActiveRuntimePreset(null);
-    }
-
-    disabledAgents = getDisabledAgents(config);
     rewriteDisplayNameMentions = createDisplayNameMentionRewriter(config);
     agentDefs = createAgents(config);
     agents = getAgentConfigs(config);
@@ -193,6 +200,24 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         modelArrayMap[agentDef.name] = agentDef._modelArray;
       }
     }
+    anthropicTaskFallbacks = {} as Record<
+      string,
+      {
+        shadowAgentName: string;
+      }
+    >;
+    // Record anthropic-primary agents that have an explicit backup model in
+    // their _modelArray. Task-owned child sessions cannot be safely rescued
+    // mid-flight, so we use this map to pre-route fresh child sessions onto
+    // backup models whenever the root session has already proven Anthropic is
+    // unhealthy.
+    for (const [agentName, models] of Object.entries(modelArrayMap)) {
+      const route = getAnthropicTaskFallbackRoute(agentName, models);
+      if (route) {
+        anthropicTaskFallbacks[agentName] = route;
+      }
+    }
+
     // Build runtime fallback chains for all foreground agents. Each chain
     // is an ordered list of model strings to try when the current model is
     // rate-limited. Seeds from _modelArray entries (when the user
@@ -226,7 +251,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
 
     // Parse multiplexer config with defaults
     multiplexerConfig = {
-      type: config.multiplexer?.type ?? 'none',
+      type: isV2 ? 'none' : (config.multiplexer?.type ?? 'none'),
       layout: config.multiplexer?.layout ?? 'main-vertical',
       main_pane_size: config.multiplexer?.main_pane_size ?? 60,
     };
@@ -234,9 +259,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     // Get multiplexer instance for capability checks
     const multiplexer = getMultiplexer(multiplexerConfig);
     multiplexerEnabled =
-      multiplexerConfig.type !== 'none' &&
-      multiplexer !== null &&
-      multiplexer.isInsideSession();
+      multiplexerConfig.type !== 'none' && multiplexer !== null;
 
     log('[plugin] initialized with multiplexer config', {
       multiplexerConfig,
@@ -250,6 +273,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     }
 
     depthTracker = new SubagentDepthTracker();
+    sessionRootMap = new Map<string, string>();
 
     // Initialize council tools (only when council is configured)
     councilTools = config.council
@@ -271,8 +295,11 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
 
     // Initialize auto-update checker hook
     autoUpdateChecker = createAutoUpdateCheckerHook(ctx, {
-      autoUpdate: config.autoUpdate ?? true,
+      showStartupToast: !isV2 && (config.showStartupToast ?? true),
+      autoUpdate: !isV2,
     });
+
+    _costObservatoryStarter = createCostObservatoryStarterHook(ctx);
 
     // Initialize phase reminder hook for workflow compliance
     phaseReminderHook = createPhaseReminderHook();
@@ -285,8 +312,10 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
 
     // Initialize post-file-tool nudge hook
     postFileToolNudgeHook = createPostFileToolNudgeHook({
-      shouldInject: (sessionID) =>
-        sessionAgentMap.get(sessionID) === 'orchestrator',
+      shouldInject: (sessionID) => {
+        const agentName = sessionAgentMap.get(sessionID);
+        return !!agentName && isOrchestratorAgent(agentName);
+      },
     });
 
     chatHeadersHook = createChatHeadersHook(ctx);
@@ -302,8 +331,13 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     foregroundFallback = new ForegroundFallbackManager(
       ctx.client,
       runtimeChains,
-      config.fallback?.enabled !== false &&
+      !isV2 &&
+        config.fallback?.enabled !== false &&
         Object.keys(runtimeChains).length > 0,
+      undefined,
+      (sessionID, agentName) => {
+        sessionAgentMap.set(sessionID, agentName);
+      },
     );
 
     // Initialize todo-continuation hook (opt-in auto-continue for
@@ -313,20 +347,20 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       cooldownMs: config.todoContinuation?.cooldownMs ?? 3000,
       autoEnable: config.todoContinuation?.autoEnable ?? false,
       autoEnableThreshold: config.todoContinuation?.autoEnableThreshold ?? 4,
+      notify: !isV2,
+      // Preserve variant agent identity (e.g. orchestrator-beta) and
+      // user-selected model on auto-continue resume, rather than reverting
+      // to the JSONC-defined default orchestrator and model.
+      getSessionAgent: (sessionID) => sessionAgentMap.get(sessionID),
+      getSessionModel: (sessionID) =>
+        foregroundFallback.getSessionModel(sessionID),
     });
     sessionGoalHook = createSessionGoalHook(ctx, config, {
       getAgentName: (sessionID) => sessionAgentMap.get(sessionID),
     });
-    taskSessionManagerHook = createTaskSessionManagerHook(ctx, {
-      maxSessionsPerAgent: config.sessionManager?.maxSessionsPerAgent ?? 2,
-      readContextMinLines: config.sessionManager?.readContextMinLines ?? 10,
-      readContextMaxFiles: config.sessionManager?.readContextMaxFiles ?? 8,
-      shouldManageSession: (sessionID) =>
-        sessionAgentMap.get(sessionID) === 'orchestrator',
-    });
+
     interviewManager = createInterviewManager(ctx, config);
     presetManager = createPresetManager(ctx, config);
-    divoomManager = createDivoomManager(config.divoom);
 
     subtaskState = createSubtaskState();
     subtaskCommandManager = createSubtaskCommandManager(ctx, subtaskState);
@@ -344,10 +378,14 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     await appLog(
       ctx,
       'error',
-      `INIT FAILED: ${String(err)}. Report at github.com/alvinunreal/oh-my-opencode-slim/issues/310`,
+      `INIT FAILED: ${String(err)}. Report at github.com/Peiyuan-Cai/oh-my-opencode-slim/issues`,
     );
     throw err;
   }
+
+  const getRootSessionId = (sessionID: string): string => {
+    return sessionRootMap.get(sessionID) ?? sessionID;
+  };
 
   // ── Health check: validate registrations ────────────────────────────
   const agentCount = Object.keys(agents).length;
@@ -370,7 +408,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       `  mcps:   ${mcpCount} (expected >=${mcpThreshold})`,
       'This usually means a dependency failed to resolve (jsdom, etc).',
       'If you recently updated opencode, see:',
-      '  github.com/alvinunreal/oh-my-opencode-slim/issues/310',
+      '  github.com/Peiyuan-Cai/oh-my-opencode-slim/issues',
     ].join('\n');
     log(`[plugin] WARN: ${msg}`);
     await appLog(ctx, 'warn', msg);
@@ -393,10 +431,11 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     }
   });
 
-  divoomManager.onPluginLoad();
-
   return {
     name: 'oh-my-opencode-slim',
+    dispose: () => {
+      todoContinuationHook.dispose();
+    },
 
     agent: agents,
 
@@ -435,15 +474,17 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
             name
           ] as Record<string, unknown> | undefined;
           if (existing) {
-            // Shallow merge: plugin defaults first, user overrides win
-            (opencodeConfig.agent as Record<string, unknown>)[name] = {
-              ...pluginAgent,
-              ...existing,
-            };
+            (opencodeConfig.agent as Record<string, unknown>)[name] =
+              mergeAgentConfig(
+                pluginAgent as Record<string, unknown>,
+                existing,
+              );
           } else {
-            (opencodeConfig.agent as Record<string, unknown>)[name] = {
-              ...pluginAgent,
-            };
+            (opencodeConfig.agent as Record<string, unknown>)[name] =
+              mergeAgentConfig(
+                pluginAgent as Record<string, unknown>,
+                undefined,
+              );
           }
         }
       }
@@ -506,17 +547,29 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       }
 
       if (Object.keys(effectiveArrays).length > 0) {
+        // Pull the persistent cooldown store from the foreground fallback
+        // manager so startup-time model selection skips models whose
+        // Anthropic-style 5-hour rolling quota is still exhausted from a
+        // previous session. Without this, every fresh OpenCode start would
+        // burn ~30s of OpenCode-native exponential-backoff retries against
+        // a known-rate-limited model before ForegroundFallbackManager can
+        // catch the eventual error and switch to the next model.
+        const cooldowns = foregroundFallback.getCooldownStore();
         for (const [agentName, modelArray] of Object.entries(effectiveArrays)) {
           if (modelArray.length === 0) continue;
 
-          // Use the first model in the effective array. Not all providers
-          // require entries in opencodeConfig.provider — some are loaded
-          // automatically by opencode (e.g. github-copilot, openrouter).
-          // We cannot distinguish these from truly unconfigured providers
-          // at config-hook time, so we cannot gate on the provider config
-          // keys. Runtime failover is handled separately by
-          // ForegroundFallbackManager.
-          const chosen = modelArray[0];
+          // Prefer the first model that isn't currently in cooldown. If
+          // every model in the chain is cooled down, fall back to
+          // modelArray[0] so the user isn't fully stuck (the runtime
+          // ForegroundFallbackManager will still walk the chain on
+          // failure). Not all providers require entries in
+          // opencodeConfig.provider — some are loaded automatically by
+          // opencode (e.g. github-copilot, openrouter) — so we cannot gate
+          // on provider config keys here.
+          const available = modelArray.find(
+            (m) => !cooldowns.isCoolingDown(m.id),
+          );
+          const chosen = available ?? modelArray[0];
           const entry = configAgent[agentName] as
             | Record<string, unknown>
             | undefined;
@@ -541,142 +594,6 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         }
       }
 
-      // Runtime preset override: if /preset switched to a runtime preset,
-      // override the model/variant/temperature from the preset's agent
-      // config. This runs after the normal model resolution because the
-      // config() hook re-runs with stale modelArrayMap after dispose(),
-      // but the runtime preset data is in the captured `config` closure.
-      const runtimePresetName = getActiveRuntimePreset();
-      if (runtimePresetName && config.presets?.[runtimePresetName]) {
-        const runtimePreset = config.presets[runtimePresetName];
-        for (const [agentName, override] of Object.entries(runtimePreset)) {
-          // Resolve legacy alias keys (e.g. "explore" → "explorer")
-          // so presets using aliases work in this path.
-          const resolvedName = AGENT_ALIASES[agentName] ?? agentName;
-          const entry = configAgent[resolvedName] as
-            | Record<string, unknown>
-            | undefined;
-          if (!entry) continue;
-
-          if (typeof override.model === 'string') {
-            entry.model = override.model;
-          } else if (
-            Array.isArray(override.model) &&
-            override.model.length > 0
-          ) {
-            const first = override.model[0];
-            entry.model = typeof first === 'string' ? first : first.id;
-            // Extract inline variant from array-form model entry
-            if (typeof first !== 'string' && first.variant) {
-              entry.variant = first.variant;
-            }
-          }
-          // Explicitly set or clear scalar fields so switching from
-          // Preset A (which sets a field) to Preset B (which doesn't)
-          // doesn't leave stale values behind.
-          if (typeof override.variant === 'string') {
-            entry.variant = override.variant;
-          } else if ('variant' in override) {
-            delete entry.variant;
-          }
-          if (typeof override.temperature === 'number') {
-            entry.temperature = override.temperature;
-          } else if ('temperature' in override) {
-            delete entry.temperature;
-          }
-          if (
-            override.options &&
-            typeof override.options === 'object' &&
-            !Array.isArray(override.options)
-          ) {
-            entry.options = override.options;
-          } else if ('options' in override) {
-            delete entry.options;
-          }
-          log('[plugin] runtime preset override', {
-            preset: runtimePresetName,
-            agent: agentName,
-            model: entry.model as string,
-          });
-        }
-
-        // Reset agents from the previous preset that aren't in the new one.
-        // The stale model resolution above overwrites the reset values sent
-        // by preset-manager, so we re-apply them here from config-file
-        // baseline.
-        const prevPresetName = getPreviousRuntimePreset();
-        if (prevPresetName && config.presets?.[prevPresetName]) {
-          const prevPreset = config.presets[prevPresetName];
-          // Build resolved key set from new preset for correct comparison
-          // (handles alias keys like "explore" → "explorer")
-          const newPresetResolved = new Set(
-            Object.keys(runtimePreset).map((k) => AGENT_ALIASES[k] ?? k),
-          );
-          for (const agentName of Object.keys(prevPreset)) {
-            const resolvedName = AGENT_ALIASES[agentName] ?? agentName;
-            if (newPresetResolved.has(resolvedName)) continue; // new preset handles it
-            const entry = configAgent[resolvedName] as
-              | Record<string, unknown>
-              | undefined;
-            if (!entry) continue;
-            // Reset to config-file baseline. Use the previous preset's
-            // override to identify which fields to clear even when the
-            // baseline doesn't define them.
-            const baseline = config.agents?.[resolvedName];
-            const prevOverride = prevPreset[agentName] as
-              | AgentOverrideConfig
-              | undefined;
-            if (typeof baseline?.model === 'string') {
-              entry.model = baseline.model;
-            }
-            if (typeof baseline?.variant === 'string') {
-              entry.variant = baseline.variant;
-            } else if (prevOverride && 'variant' in prevOverride) {
-              delete entry.variant;
-            }
-            if (typeof baseline?.temperature === 'number') {
-              entry.temperature = baseline.temperature;
-            } else if (prevOverride && 'temperature' in prevOverride) {
-              delete entry.temperature;
-            }
-            if (
-              baseline?.options &&
-              typeof baseline.options === 'object' &&
-              !Array.isArray(baseline.options)
-            ) {
-              entry.options = baseline.options;
-            } else if (prevOverride && 'options' in prevOverride) {
-              delete entry.options;
-            }
-            log('[plugin] runtime preset reset from previous', {
-              previousPreset: prevPresetName,
-              agent: resolvedName,
-              model: entry.model as string,
-            });
-          }
-        }
-      }
-
-      const tuiAgentModels: Record<string, string> = {};
-      for (const agentDef of agentDefs) {
-        if (agentDef.name === 'councillor') continue;
-
-        const entry = configAgent[agentDef.name] as
-          | Record<string, unknown>
-          | undefined;
-        const resolvedModel =
-          typeof entry?.model === 'string'
-            ? entry.model
-            : runtimeChains[agentDef.name]?.[0]
-              ? runtimeChains[agentDef.name][0]
-              : typeof agentDef.config.model === 'string'
-                ? agentDef.config.model
-                : undefined;
-
-        tuiAgentModels[agentDef.name] = resolvedModel ?? 'default';
-      }
-      recordTuiAgentModels({ agentModels: tuiAgentModels });
-
       // Merge MCP configs
       const configMcp = opencodeConfig.mcp as
         | Record<string, unknown>
@@ -687,13 +604,9 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         Object.assign(configMcp, mcps);
       }
 
-      // Get all MCP names from the merged config (built-in + custom)
-      const mergedMcpConfig = opencodeConfig.mcp as
-        | Record<string, unknown>
-        | undefined;
-      const allMcpNames = Object.keys(mergedMcpConfig ?? mcps);
-
-      // For each agent, create permission rules based on their mcps list
+      // For each agent, create permission rules based on their mcps list.
+      // Only OMO-managed built-in MCPs are covered here; custom MCPs stay
+      // untouched.
       for (const [agentName, agentConfig] of Object.entries(agents)) {
         const agentMcps = (agentConfig as { mcps?: string[] })?.mcps;
         if (!agentMcps) continue;
@@ -711,21 +624,10 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
           unknown
         >;
 
-        // Parse mcps list with wildcard and exclusion support
-        const allowedMcps = parseList(agentMcps, allMcpNames);
-
-        // Create permission rules for each MCP
-        // MCP tools are named as <server>_<tool>, so we use <server>_*
-        for (const mcpName of allMcpNames) {
-          const sanitizedMcpName = mcpName.replace(/[^a-zA-Z0-9_-]/g, '_');
-          const permissionKey = `${sanitizedMcpName}_*`;
-          const action = allowedMcps.includes(mcpName) ? 'allow' : 'deny';
-
-          // Only set if not already defined by user
-          if (!(permissionKey in agentPermission)) {
-            agentPermission[permissionKey] = action;
-          }
-        }
+        Object.assign(
+          agentPermission,
+          buildAgentMcpPermissionRules(agentMcps, agentPermission),
+        );
 
         // Update agent config with permissions
         agentConfigEntry.permission = agentPermission;
@@ -758,39 +660,21 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       const event = input.event as {
         type: string;
         properties?: {
-          info?: {
-            id?: string;
-            parentID?: string;
-            title?: string;
-            agent?: string;
-            providerID?: string;
-            modelID?: string;
-            sessionID?: string;
-          };
+          info?: { id?: string; parentID?: string; title?: string };
           sessionID?: string;
-          id?: string;
-          requestID?: string;
           status?: { type: string };
         };
       };
 
-      if (event.type === 'message.updated') {
-        const info = event.properties?.info;
-        if (
-          typeof info?.agent === 'string' &&
-          typeof info.providerID === 'string' &&
-          typeof info.modelID === 'string'
-        ) {
-          recordTuiAgentModel({
-            agentName: resolveRuntimeAgentName(config, info.agent),
-            model: `${info.providerID}/${info.modelID}`,
-          });
-        }
-      }
-
       if (event.type === 'session.created') {
         const childSessionId = event.properties?.info?.id;
         const parentSessionId = event.properties?.info?.parentID;
+        if (childSessionId) {
+          const rootSessionId = parentSessionId
+            ? (sessionRootMap.get(parentSessionId) ?? parentSessionId)
+            : childSessionId;
+          sessionRootMap.set(childSessionId, rootSessionId);
+        }
         if (depthTracker && childSessionId && parentSessionId) {
           depthTracker.registerChild(parentSessionId, childSessionId);
         }
@@ -819,7 +703,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       );
 
       // Handle auto-update checking
-      await autoUpdateChecker.event(input);
+      if (!isV2) await autoUpdateChecker.event(input);
 
       await interviewManager.handleEvent(
         input as {
@@ -827,11 +711,14 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         },
       );
 
-      await taskSessionManagerHook.event(
+      await postFileToolNudgeHook.event(
         input as {
           event: {
             type: string;
-            properties?: { info?: { id?: string }; sessionID?: string };
+            properties?: {
+              info?: { id?: string };
+              sessionID?: string;
+            };
           };
         },
       );
@@ -848,60 +735,6 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         },
       );
 
-      if (
-        event.type === 'permission.asked' ||
-        event.type === 'question.asked'
-      ) {
-        const props = event.properties as
-          | { sessionID?: string; id?: string; requestID?: string }
-          | undefined;
-        divoomManager.onUserInputRequired({
-          sessionId: props?.sessionID,
-          requestId: props?.id ?? props?.requestID,
-        });
-      }
-
-      if (
-        event.type === 'permission.replied' ||
-        event.type === 'question.replied' ||
-        event.type === 'question.rejected'
-      ) {
-        const props = event.properties as
-          | { sessionID?: string; requestID?: string; id?: string }
-          | undefined;
-        divoomManager.onUserInputResolved({
-          sessionId: props?.sessionID,
-          requestId: props?.requestID ?? props?.id,
-        });
-      }
-
-      if (input.event.type === 'session.status') {
-        const props = input.event.properties as
-          | { sessionID?: string; status?: { type?: string } }
-          | undefined;
-        const sessionID = props?.sessionID;
-        divoomManager.onOrchestratorStatus({
-          sessionId: sessionID,
-          status: props?.status?.type,
-          isOrchestrator: sessionID
-            ? sessionAgentMap.get(sessionID) === 'orchestrator'
-            : false,
-        });
-      }
-
-      if (input.event.type === 'session.deleted') {
-        const props = input.event.properties as
-          | { info?: { id?: string }; sessionID?: string }
-          | undefined;
-        const sessionID = props?.info?.id ?? props?.sessionID;
-        divoomManager.onSessionDeleted({
-          sessionId: sessionID,
-          isOrchestrator: sessionID
-            ? sessionAgentMap.get(sessionID) === 'orchestrator'
-            : false,
-        });
-      }
-
       if (input.event.type === 'session.deleted') {
         const props = input.event.properties as
           | { info?: { id?: string }; sessionID?: string }
@@ -913,6 +746,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         }
         if (sessionID) {
           sessionAgentMap.delete(sessionID);
+          sessionRootMap.delete(sessionID);
         }
       }
     },
@@ -930,22 +764,105 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         },
       );
 
-      await taskSessionManagerHook['tool.execute.before'](
-        input as {
-          tool: string;
-          sessionID?: string;
-          callID?: string;
-        },
-        output as { args?: unknown },
-      );
+      if (input.tool !== 'task') {
+        return;
+      }
 
-      if (input.tool.toLowerCase() === 'task') {
-        divoomManager.onTaskStart({
-          parentSessionId: input.sessionID,
-          callId: input.callID,
-          args: output.args,
+      const args = output.args as
+        | { subagent_type?: unknown; task_id?: unknown }
+        | undefined;
+      if (typeof args?.subagent_type !== 'string') {
+        return;
+      }
+      const rootSessionID = getRootSessionId(input.sessionID);
+      const rootAgent = sessionAgentMap.get(rootSessionID);
+      const originalSubagentType = args.subagent_type;
+      const taskId =
+        typeof args.task_id === 'string' ? args.task_id : undefined;
+      const isPivotedRoot = isPivotedRootAgent(rootAgent);
+
+      if (taskId) {
+        log('[child-preroute][diag] evaluate task resume/fresh', {
+          rootSessionID,
+          rootAgent,
+          isPivotedRoot,
+          subagentType: originalSubagentType,
+          taskId,
         });
       }
+
+      const verdict = await decideTaskPreroute({
+        rootAgent,
+        subagentType: originalSubagentType,
+        taskId,
+        lookupSessionAgent: async (id) => {
+          try {
+            const resumedAgentName = await extractSessionAgent(ctx.client, id);
+            log('[child-preroute][diag] resumed session lookup', {
+              rootSessionID,
+              requestedTaskId: id,
+              source: 'session.messages',
+              resumedAgentName,
+            });
+            return resumedAgentName;
+          } catch (err) {
+            log('[child-preroute][diag] resumed session lookup failed', {
+              rootSessionID,
+              requestedTaskId: id,
+              source: 'session.messages',
+              error: err instanceof Error ? err.message : String(err),
+            });
+            return undefined;
+          }
+        },
+        anthropicTaskFallbacks,
+      });
+
+      if (taskId) {
+        log('[child-preroute][diag] preroute verdict', {
+          rootSessionID,
+          rootAgent,
+          isPivotedRoot,
+          subagentType: originalSubagentType,
+          taskId,
+          action: verdict.action,
+          errorMessage:
+            verdict.action === 'block' ? verdict.errorMessage : undefined,
+          newSubagentType:
+            verdict.action === 'rewrite' ? verdict.newSubagentType : undefined,
+        });
+      }
+
+      if (verdict.action === 'passthrough') {
+        log('[child-preroute] passthrough task-owned child', {
+          rootSessionID,
+          rootAgent,
+          subagentType: originalSubagentType,
+          source: isPivotedRoot ? 'pivoted' : 'identity',
+        });
+        return;
+      }
+
+      if (verdict.action === 'block') {
+        log(
+          '[child-preroute] blocked resumed task on anthropic-primary child',
+          {
+            rootSessionID,
+            taskId: args.task_id,
+            errorMessage: verdict.errorMessage,
+          },
+        );
+        throw new Error(verdict.errorMessage);
+      }
+
+      args.subagent_type = verdict.newSubagentType;
+      log('[child-preroute] rerouted task-owned child to backup shadow agent', {
+        rootSessionID,
+        callerSessionID: input.sessionID,
+        subagentType: originalSubagentType,
+        shadowAgentType: verdict.newSubagentType,
+        source: 'pivoted',
+      });
     },
 
     // Direct interception of /auto-continue command — bypasses LLM
@@ -1009,9 +926,14 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         output.message.agent = agent;
       }
 
+      if (!sessionRootMap.has(input.sessionID)) {
+        sessionRootMap.set(input.sessionID, input.sessionID);
+      }
+
       if (agent) {
         sessionAgentMap.set(input.sessionID, agent);
       }
+
       todoContinuationHook.handleChatMessage({
         sessionID: input.sessionID,
         agent,
@@ -1031,7 +953,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       const agentName = input.sessionID
         ? sessionAgentMap.get(input.sessionID)
         : undefined;
-      if (agentName === 'orchestrator') {
+      if (agentName && isOrchestratorAgent(agentName)) {
         const alreadyInjected = output.system.some(
           (s) =>
             typeof s === 'string' &&
@@ -1040,18 +962,19 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         );
         if (!alreadyInjected) {
           // Prepend the orchestrator prompt to the system array. Use the
-          // resolved prompt from the orchestrator agent definition (which
-          // includes any custom replacement or append from orchestrator.md
-          // / orchestrator_append.md) Fall back to
-          // buildOrchestratorPrompt only if the resolved prompt is
-          // missing.
+          // resolved prompt from the *literal* orchestrator agent definition
+          // (which includes any custom replacement or append from
+          // orchestrator.md / orchestrator_append.md). Variant orchestrators
+          // ("orchestrator-beta", etc.) inherit the same prompt so they
+          // behave identically to the main orchestrator. Fall back to
+          // buildOrchestratorPrompt only if the resolved prompt is missing.
           const orchestratorDef = agentDefs.find(
             (a) => a.name === 'orchestrator',
           );
           const orchestratorPrompt =
             typeof orchestratorDef?.config?.prompt === 'string'
               ? orchestratorDef.config.prompt
-              : buildOrchestratorPrompt(disabledAgents);
+              : buildOrchestratorPrompt(getDisabledAgents(config));
           output.system[0] =
             orchestratorPrompt +
             (output.system[0] ? `\n\n${output.system[0]}` : '');
@@ -1059,6 +982,11 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       }
 
       sessionGoalHook.handleSystemTransform(input, output);
+      await todoContinuationHook.handleChatSystemTransform(input, output);
+      await postFileToolNudgeHook['experimental.chat.system.transform'](
+        input,
+        output,
+      );
 
       // Collapse to single system message for provider compatibility.
       // Some providers (e.g. Qwen via VLLM/DashScope) reject multiple
@@ -1107,17 +1035,13 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       processImageAttachments({
         messages: typedOutput.messages,
         workDir: ctx.directory,
-        disabledAgents,
+        disabledAgents: getDisabledAgents(config),
         log,
       });
 
       await todoContinuationHook.handleMessagesTransform({
         messages: typedOutput.messages,
       });
-      await taskSessionManagerHook['experimental.chat.messages.transform'](
-        input,
-        typedOutput,
-      );
       await phaseReminderHook['experimental.chat.messages.transform'](
         input,
         typedOutput,
@@ -1131,97 +1055,50 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     // Post-tool hooks: retry guidance for delegation errors + file-tool
     // nudge
     'tool.execute.after': async (input, output) => {
-      const meta = input as {
-        tool?: string;
-        sessionID?: string;
-        callID?: string;
-      };
-      const runPostToolHook = async (
-        name: string,
-        fn: () => Promise<void>,
-      ): Promise<void> => {
-        try {
-          await fn();
-        } catch (error) {
-          log('[plugin] post-tool hook failed open', {
-            hook: name,
-            tool: meta.tool,
-            sessionID: meta.sessionID,
-            callID: meta.callID,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      };
-
-      await runPostToolHook('delegate-task-retry', () =>
-        delegateTaskRetryHook['tool.execute.after'](
-          input as { tool: string },
-          output as { output: unknown },
-        ),
+      await delegateTaskRetryHook['tool.execute.after'](
+        input as { tool: string },
+        output as { output: unknown },
       );
 
-      await runPostToolHook('json-error-recovery', () =>
-        jsonErrorRecoveryHook['tool.execute.after'](
-          input as {
-            tool: string;
-            sessionID: string;
-            callID: string;
-          },
-          output as {
-            title: string;
-            output: unknown;
-            metadata: unknown;
-          },
-        ),
+      await jsonErrorRecoveryHook['tool.execute.after'](
+        input as {
+          tool: string;
+          sessionID: string;
+          callID: string;
+        },
+        output as {
+          title: string;
+          output: unknown;
+          metadata: unknown;
+        },
       );
 
-      await runPostToolHook('todo-continuation', () =>
-        todoContinuationHook.handleToolExecuteAfter(
-          input as {
-            tool: string;
-            sessionID?: string;
-          },
-          output as { output?: unknown },
-        ),
+      await todoContinuationHook.handleToolExecuteAfter(
+        input as {
+          tool: string;
+          sessionID?: string;
+        },
       );
 
-      await runPostToolHook('post-file-tool-nudge', () =>
-        postFileToolNudgeHook['tool.execute.after'](
-          input as {
-            tool: string;
-            sessionID?: string;
-            callID?: string;
-          },
-          output as {
-            title: string;
-            output: string;
-            metadata: Record<string, unknown>;
-          },
-        ),
+      await postFileToolNudgeHook['tool.execute.after'](
+        input as {
+          tool: string;
+          sessionID?: string;
+          callID?: string;
+        },
+        output as {
+          title: string;
+          output: string;
+          metadata: Record<string, unknown>;
+        },
       );
-
-      await runPostToolHook('task-session-manager', () =>
-        taskSessionManagerHook['tool.execute.after'](
-          input as {
-            tool: string;
-            sessionID?: string;
-            callID?: string;
-          },
-          output as { output: unknown },
-        ),
-      );
-
-      if (input.tool.toLowerCase() === 'task') {
-        divoomManager.onTaskEnd({
-          parentSessionId: input.sessionID,
-          callId: input.callID,
-        });
-      }
     },
   };
 };
 
 export default OhMyOpenCodeLite;
+
+type PluginInputWithFlavor = Parameters<Plugin>[0] & { hostFlavor?: 'v2' };
 
 export type {
   AgentName,

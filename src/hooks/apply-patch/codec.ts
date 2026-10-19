@@ -68,19 +68,6 @@ function unexpectedPatchLine(context: string, line: string): never {
   );
 }
 
-function parseChangeContext(line: string): string | undefined {
-  const context = line.slice(2);
-  if (context.length === 0) {
-    return undefined;
-  }
-
-  return context.startsWith(' ') ? context.slice(1) || undefined : context;
-}
-
-function isPatchBoundary(line: string, marker: string): boolean {
-  return line.trimEnd() === marker;
-}
-
 function parseChunks(lines: string[], index: number, mode: ParseMode) {
   const chunks: PatchChunk[] = [];
   let at = index;
@@ -94,7 +81,7 @@ function parseChunks(lines: string[], index: number, mode: ParseMode) {
       continue;
     }
 
-    const context = parseChangeContext(lines[at]);
+    const context = lines[at].slice(2).trim() || undefined;
     at += 1;
 
     const old_lines: string[] = [];
@@ -152,12 +139,12 @@ function parseChunks(lines: string[], index: number, mode: ParseMode) {
 }
 
 function parseAdd(lines: string[], index: number, mode: ParseMode) {
-  const contents: string[] = [];
+  let contents = '';
   let at = index;
 
   while (at < lines.length && !lines[at].startsWith('***')) {
     if (lines[at].startsWith('+')) {
-      contents.push(lines[at].slice(1));
+      contents += `${lines[at].slice(1)}\n`;
       at += 1;
       continue;
     }
@@ -169,18 +156,18 @@ function parseAdd(lines: string[], index: number, mode: ParseMode) {
     at += 1;
   }
 
-  return { content: contents.join('\n'), next: at };
+  if (contents.endsWith('\n')) {
+    contents = contents.slice(0, -1);
+  }
+
+  return { content: contents, next: at };
 }
 
 function parsePatchInternal(patchText: string, mode: ParseMode): ParsedPatch {
   const clean = normalizePatchText(patchText);
   const lines = clean.split('\n');
-  const begin = lines.findIndex((line) =>
-    isPatchBoundary(line, '*** Begin Patch'),
-  );
-  const end = lines.findIndex(
-    (line, index) => index > begin && isPatchBoundary(line, '*** End Patch'),
-  );
+  const begin = lines.findIndex((line) => line.trim() === '*** Begin Patch');
+  const end = lines.findIndex((line) => line.trim() === '*** End Patch');
 
   if (begin === -1 || end === -1 || begin >= end) {
     throw new Error('Invalid patch format: missing Begin/End markers');
