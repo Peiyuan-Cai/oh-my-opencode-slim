@@ -1,8 +1,9 @@
 import { describe, expect, mock, test } from 'bun:test';
 import {
   abortSessionWithTimeout,
+  extractSessionAgent,
   OperationTimeoutError,
-  sessionAbortFailure,
+  promptWithTimeout,
   withTimeout,
 } from './session';
 
@@ -23,6 +24,78 @@ describe('session utilities', () => {
     );
   });
 
+  test('promptWithTimeout aborts a timed-out prompt before rejecting', async () => {
+    const abort = mock(async () => ({}));
+    const prompt = mock(() => never());
+    const client = {
+      session: {
+        abort,
+        prompt,
+      },
+    } as any;
+
+    await expect(
+      promptWithTimeout(client, { path: { id: 's1' }, body: { parts: [] } }, 5),
+    ).rejects.toThrow('Prompt timed out after 5ms');
+
+    expect(abort).toHaveBeenCalledWith({ path: { id: 's1' } });
+  });
+
+  test('promptWithTimeout preserves timeout error when abort fails', async () => {
+    const abort = mock(async () => {
+      throw new Error('abort failed');
+    });
+    const prompt = mock(() => never());
+    const client = {
+      session: {
+        abort,
+        prompt,
+      },
+    } as any;
+
+    await expect(
+      promptWithTimeout(client, { path: { id: 's1' }, body: { parts: [] } }, 5),
+    ).rejects.toThrow('Prompt timed out after 5ms');
+  });
+
+  test('promptWithTimeout honors abort signal when timeout is disabled', async () => {
+    const controller = new AbortController();
+    const abort = mock(async () => ({}));
+    const prompt = mock(() => never());
+    const client = {
+      session: {
+        abort,
+        prompt,
+      },
+    } as any;
+
+    queueMicrotask(() => controller.abort());
+
+    await expect(
+      promptWithTimeout(
+        client,
+        { path: { id: 's1' }, body: { parts: [] } },
+        0,
+        controller.signal,
+      ),
+    ).rejects.toThrow('Prompt cancelled');
+  });
+
+  test('promptWithTimeout returns when prompt resolves with no timeout', async () => {
+    const abort = mock(async () => ({}));
+    const prompt = mock(async () => ({}));
+    const client = {
+      session: {
+        abort,
+        prompt,
+      },
+    } as any;
+
+    await expect(
+      promptWithTimeout(client, { path: { id: 's1' }, body: { parts: [] } }, 0),
+    ).resolves.toBeUndefined();
+  });
+
   test('abortSessionWithTimeout rejects if abort hangs', async () => {
     const client = {
       session: {
@@ -34,29 +107,58 @@ describe('session utilities', () => {
       'Session abort timed out after 5ms',
     );
   });
+});
 
-  test('abortSessionWithTimeout rejects resolved error envelopes', async () => {
+describe('extractSessionAgent', () => {
+  test('returns latest string info.agent from session messages', async () => {
     const client = {
       session: {
-        abort: mock(() => Promise.resolve({ error: 'session busy' })),
+        messages: async () => ({
+          data: [
+            { info: { role: 'user', agent: 'librarian' }, parts: [] },
+            { info: { role: 'assistant', agent: 'librarian' }, parts: [] },
+          ],
+        }),
       },
     } as any;
 
-    await expect(abortSessionWithTimeout(client, 's1')).rejects.toThrow(
-      'session abort rejected: session busy',
+    await expect(extractSessionAgent(client, 'ses_1')).resolves.toBe(
+      'librarian',
     );
   });
 
-  test('sessionAbortFailure reads both SDK envelopes', () => {
-    expect(sessionAbortFailure({ error: 'boom' })).toBe(
-      'session abort rejected: boom',
+  test('returns the last available string agent when multiple message agents exist', async () => {
+    const client = {
+      session: {
+        messages: async () => ({
+          data: [
+            { info: { role: 'user', agent: 'librarian' }, parts: [] },
+            {
+              info: { role: 'assistant', agent: 'librarian__task_fallback' },
+              parts: [],
+            },
+          ],
+        }),
+      },
+    } as any;
+
+    await expect(extractSessionAgent(client, 'ses_2')).resolves.toBe(
+      'librarian__task_fallback',
     );
-    expect(sessionAbortFailure({ error: { message: 'nope' } })).toBe(
-      'session abort rejected: {"message":"nope"}',
-    );
-    expect(sessionAbortFailure(false)).toBe('session abort returned false');
-    expect(sessionAbortFailure(undefined)).toBeNull();
-    expect(sessionAbortFailure({ data: { ok: true } })).toBeNull();
-    expect(sessionAbortFailure(null)).toBeNull();
+  });
+
+  test('returns undefined when no message contains a string agent', async () => {
+    const client = {
+      session: {
+        messages: async () => ({
+          data: [
+            { info: { role: 'user' }, parts: [] },
+            { info: { role: 'assistant', agent: null }, parts: [] },
+          ],
+        }),
+      },
+    } as any;
+
+    await expect(extractSessionAgent(client, 'ses_3')).resolves.toBeUndefined();
   });
 });

@@ -4,24 +4,16 @@
 
 import type { MultiplexerConfig, MultiplexerType } from '../config/schema';
 import { log } from '../utils/logger';
-import { CmuxMultiplexer } from './cmux';
-import { HerdrMultiplexer } from './herdr';
-import { KittyMultiplexer } from './kitty';
 import { TmuxMultiplexer } from './tmux';
 import type { Multiplexer } from './types';
-import { WeztermMultiplexer } from './wezterm';
 import { ZellijMultiplexer } from './zellij';
 
 /**
  * Create a multiplexer instance based on config.
  *
- * Adapters capture pane-scoped state as they run (herdr's agent-area pane id
- * and spawn mutex, tmux's pane targets and layout debounce, kitty's applied
- * layout), so a caller that performs more than one operation on one plugin
- * context must reuse a single instance per type - the TUI client wiring
- * memoizes one for its lifetime (`createReusingAdapterFactory`). Callers that
- * only need a short-lived adapter may create a new one; construction itself
- * captures no pane-scoped environment.
+ * Do not cache instances: tmux/zellij integrations may depend on
+ * per-process environment like TMUX_PANE/ZELLIJ, which should be captured
+ * fresh for each plugin context.
  */
 export function getMultiplexer(config: MultiplexerConfig): Multiplexer | null {
   const { type } = config;
@@ -43,68 +35,18 @@ export function getMultiplexer(config: MultiplexerConfig): Multiplexer | null {
       multiplexer = new ZellijMultiplexer(config.layout, config.main_pane_size);
       actualType = 'zellij';
       break;
-    case 'herdr':
-      multiplexer = new HerdrMultiplexer(config.layout, config.main_pane_size);
-      actualType = 'herdr';
-      break;
-    case 'cmux-tui':
-      multiplexer = new CmuxMultiplexer(config.layout, config.main_pane_size, {
-        binary: config.cmux_tui_binary,
-      });
-      actualType = 'cmux-tui';
-      break;
-    case 'kitty':
-      multiplexer = new KittyMultiplexer(config.layout, config.main_pane_size);
-      actualType = 'kitty';
-      break;
-    case 'wezterm':
-      multiplexer = new WeztermMultiplexer(
-        config.layout,
-        config.main_pane_size,
-      );
-      actualType = 'wezterm';
-      break;
     case 'auto': {
-      // Auto-detect from pane-scoped client environment signals only.
-      // Note: Does NOT fall back to binary availability checks.
-      if (process.env.CMUX_TUI_SOCKET || process.env.CMUX_MUX_SOCKET) {
-        // New-generation cmux TUI; CMUX_TUI_SOCKET takes precedence over the
-        // legacy CMUX_MUX_SOCKET alias.
-        multiplexer = new CmuxMultiplexer(
-          config.layout,
-          config.main_pane_size,
-          { binary: config.cmux_tui_binary },
-        );
-        actualType = 'cmux-tui';
-      } else if (process.env.TMUX_PANE) {
+      // Auto-detect based on environment variables only
+      // Note: Does NOT fall back to binary availability checks
+      if (process.env.TMUX) {
         multiplexer = new TmuxMultiplexer(config.layout, config.main_pane_size);
         actualType = 'tmux';
-      } else if (process.env.ZELLIJ_PANE_ID) {
+      } else if (process.env.ZELLIJ) {
         multiplexer = new ZellijMultiplexer(
           config.layout,
           config.main_pane_size,
         );
         actualType = 'zellij';
-      } else if (process.env.HERDR_PANE_ID) {
-        multiplexer = new HerdrMultiplexer(
-          config.layout,
-          config.main_pane_size,
-        );
-        actualType = 'herdr';
-      } else if (process.env.KITTY_WINDOW_ID) {
-        multiplexer = new KittyMultiplexer(
-          config.layout,
-          config.main_pane_size,
-        );
-        actualType = 'kitty';
-      } else if (process.env.WEZTERM_PANE) {
-        // Last: WezTerm hosts tmux/zellij sessions, which must win when
-        // nested inside it.
-        multiplexer = new WeztermMultiplexer(
-          config.layout,
-          config.main_pane_size,
-        );
-        actualType = 'wezterm';
       } else {
         // Not inside any session, disable multiplexer
         log('[multiplexer] auto: not inside any session, disabling');
@@ -120,4 +62,36 @@ export function getMultiplexer(config: MultiplexerConfig): Multiplexer | null {
   log(`[multiplexer] Created ${actualType} instance`);
 
   return multiplexer;
+}
+
+/**
+ * Clear the multiplexer cache (useful for testing)
+ */
+export function clearMultiplexerCache(): void {
+  // No-op: multiplexers are no longer cached.
+}
+
+/**
+ * Get the effective multiplexer type for auto mode
+ * Returns the actual type that would be used (tmux/zellij/none)
+ */
+export function getAutoMultiplexerType(): 'tmux' | 'zellij' | 'none' {
+  if (process.env.TMUX) {
+    return 'tmux';
+  }
+  if (process.env.ZELLIJ) {
+    return 'zellij';
+  }
+  return 'none';
+}
+
+/**
+ * Start background availability check for a multiplexer
+ */
+export function startAvailabilityCheck(config: MultiplexerConfig): void {
+  const multiplexer = getMultiplexer(config);
+  if (multiplexer) {
+    // Fire and forget - don't await
+    multiplexer.isAvailable().catch(() => {});
+  }
 }

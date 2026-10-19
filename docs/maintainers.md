@@ -4,9 +4,10 @@ This document is the source of truth for issue triage and lightweight repo maint
 
 ## Goals
 
-- Bug reports stay actionable; filing stays lightweight.
-- Support questions go to Telegram, not the issue tracker.
-- Maintainers decide quickly and apply the same standard each time.
+- Keep bug reports actionable.
+- Keep issue filing lightweight.
+- Keep support out of the issue tracker.
+- Keep maintainer decisions fast and consistent.
 
 ## Where Different Things Go
 
@@ -26,7 +27,7 @@ Use the Telegram channel for:
 - general support
 - open-ended usage questions
 
-If an issue is really a support request, reply briefly and redirect the user to [Telegram](https://t.me/boringdystopiadevelopment).
+If an issue is really a support request, reply briefly and redirect the user to Telegram.
 
 ## Issue Forms
 
@@ -53,44 +54,45 @@ Feature requests should stay lightweight and focus on:
 - the requested change
 - optional extra context
 
-### Community preset submission
-
-Community preset submissions use a separate form (`preset_submission.yml`).
-These require preset name, GitHub handle, config block, supported providers, and
-intended use case. Label with `community-preset` and review for clarity and
-validity before merging.
-
 ## Labels
 
-The canonical label taxonomy is defined in
-[`docs/agents/triage-labels.md`](agents/triage-labels.md). This section covers
-triage procedure only.
+Only use these labels:
+
+- `bug` — bug report
+- `enhancement` — feature request or improvement
+- `needs-info` — cannot act yet because key details are missing
+- `confirmed` — a maintainer confirmed the issue or agrees the request is valid
+- `P0` — highest priority
+- `Share Your Thoughts` — open-ended feedback from the community
+
+If a label does not help triage or prioritization, do not add it.
 
 ## Triage Flow
 
-Requires the `triage` skill from `mattpocock/skills`.
+For each new issue, make a quick first decision:
 
-**Install the skill:** `npx skills add https://github.com/mattpocock/skills --skill triage`
+1. Is it a bug report, a feature request, or support?
+2. Is there enough information to act on it?
+3. Is it confirmed?
 
-The label mapping the skill expects is already provided in
-[`docs/agents/triage-labels.md`](agents/triage-labels.md). You do **not** need to
-run `/setup-matt-pocock-skills` for this repo.
+### Bug reports
 
-Route each new issue:
+- Add `bug` if needed.
+- Add `needs-info` if required details are missing.
+- Add `confirmed` once a maintainer reproduces it or agrees it is valid and actionable.
+- Add `P0` only for the highest-priority problems.
 
-1. **Bug report or feature request?** → run `/triage`. Canonical roles and their
-   GitHub label mappings live in
-   [`docs/agents/triage-labels.md`](agents/triage-labels.md); the skill owns the
-   role model and state transitions.
-2. **Support request?** → reply briefly, redirect to [Telegram](https://t.me/boringdystopiadevelopment), close if needed.
+### Feature requests
 
-**PRs are a separate surface.** External PRs get category labels only
-(`bug`/`enhancement`) and do not enter the triage state machine. See
-[`docs/agents/issue-tracker.md`](agents/issue-tracker.md) for the full PR
-triage policy.
+- Add `enhancement` if needed.
+- Add `confirmed` when maintainers agree it is a valid direction worth tracking.
+- Add `P0` only if it is truly urgent.
 
-This guide covers only repo-specific routing. The `triage` skill and
-`triage-labels.md` handle label application and state transitions.
+### Support issues
+
+- Reply briefly.
+- Redirect the user to Telegram.
+- Close if needed.
 
 ## Closing Policy
 

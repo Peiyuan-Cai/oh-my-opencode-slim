@@ -1,143 +1,110 @@
-import { existsSync, readFileSync, renameSync, rmSync } from 'node:fs';
-import { basename, join } from 'node:path';
-import { CUSTOM_SKILLS, type CustomSkill } from './custom-skills-registry';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+} from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getConfigDir } from './paths';
 
-export { CUSTOM_SKILLS, type CustomSkill };
-
-export interface BundledSkillInfo {
-  id: string;
+/**
+ * A custom skill bundled in this repository.
+ * Unlike npx-installed skills, these are copied from src/skills/ to the OpenCode skills directory
+ */
+export interface CustomSkill {
+  /** Skill name (folder name) */
   name: string;
-  description?: string;
-  path: string;
-  content: string;
-}
-
-/** Parse the `---` frontmatter block of a SKILL.md into flat string values. */
-function parseFrontmatter(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
-  if (!m) return out;
-  for (const line of m[1].split(/\r?\n/)) {
-    const kv = /^([\w-]+):\s*(.+)$/.exec(line);
-    if (!kv) continue;
-    const value = kv[2].trim().replace(/^['"]|['"]$/g, '');
-    // Folded/block scalars (`>-`, `|`, `&`) carry no inline value — ignore
-    // them so the registry fallback applies.
-    if (value && !/^[>|&]/.test(value)) out[kv[1].toLowerCase()] = value;
-  }
-  return out;
-}
-
-/** Strip the frontmatter block so `content` is prompt body only. */
-export function stripFrontmatter(text: string): string {
-  return text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
+  /** Human-readable description */
+  description: string;
+  /** List of agents that should auto-allow this skill */
+  allowedAgents: string[];
+  /** Source path in this repo (relative to project root) */
+  sourcePath: string;
 }
 
 /**
- * Bundled skills registered in-process via the host's `ctx.skill` channel —
- * never copied to the OpenCode skills directory. `path` points at the
- * SKILL.md inside the installed package, so the host resolves relative
- * resources against the live package version and plugin updates apply on
- * the next restart with zero disk state.
+ * Registry of custom skills bundled in this repository.
  */
-export function buildBundledSkillInfos(
-  packageRoot: string,
-  disabled: readonly string[],
-): BundledSkillInfo[] {
-  const skip = new Set(disabled);
-  const infos: BundledSkillInfo[] = [];
-  for (const skill of CUSTOM_SKILLS) {
-    if (skip.has(skill.name)) continue;
-    try {
-      const mdPath = join(packageRoot, skill.sourcePath, 'SKILL.md');
-      if (!existsSync(mdPath)) continue;
-      const raw = readFileSync(mdPath, 'utf-8').replace(/^\uFEFF/, '');
-      const fm = parseFrontmatter(raw);
-      infos.push({
-        id: skill.name,
-        name: skill.name,
-        description: fm.description ?? skill.description,
-        path: mdPath,
-        content: stripFrontmatter(raw).trim(),
-      });
-    } catch {
-      // Unreadable skill source: skip rather than break registration.
-    }
-  }
-  return infos;
-}
+export const CUSTOM_SKILLS: CustomSkill[] = [
+  {
+    name: 'simplify',
+    description: 'Code simplification and readability-focused refactoring',
+    allowedAgents: ['fixer'],
+    sourcePath: 'src/skills/simplify',
+  },
+  {
+    name: 'codemap',
+    description: 'Repository understanding and hierarchical codemap generation',
+    allowedAgents: ['orchestrator'],
+    sourcePath: 'src/skills/codemap',
+  },
+  {
+    name: 'clonedeps',
+    description: 'Clone important dependency source for local inspection',
+    allowedAgents: ['orchestrator'],
+    sourcePath: 'src/skills/clonedeps',
+  },
+];
 
-export interface LegacySkillCleanupResult {
-  /** Customized/conflict copies kept — they shadow the in-process registration. */
-  kept: string[];
-  /** Disabled customized/conflict copies renamed aside as <name>.omos-backup. */
-  backedUp: string[];
-  /** Legacy state dir existed but the manifest was unreadable. */
-  manifestUnreadable: boolean;
+/**
+ * Get the target directory for custom skills installation.
+ */
+export function getCustomSkillsDir(): string {
+  return join(getConfigDir(), 'skills');
 }
 
 /**
- * One-time removal of the retired disk-copy sync state (skills-manifest.json,
- * its staging dirs, and the managed skill copies it tracked). The host loads
- * skills straight from the skills directory, so stale managed copies would
- * keep loading and shadow the in-process registrations. User-authored skills
- * are not tracked in the manifest and are never touched. Customized copies of
- * ENABLED skills are kept (user edits win); customized copies of DISABLED
- * skills are renamed aside so they stop shadowing while the data survives.
+ * Recursively copy a directory.
  */
-export function removeLegacySkillSyncState(
-  configDir = getConfigDir(),
-  disabled: readonly string[] = [],
-): LegacySkillCleanupResult {
-  const result: LegacySkillCleanupResult = {
-    kept: [],
-    backedUp: [],
-    manifestUnreadable: false,
-  };
-  const legacyDir = join(configDir, '.oh-my-opencode-slim');
-  if (!existsSync(legacyDir)) return result;
-  const manifestPath = join(legacyDir, 'skills-manifest.json');
-  let entries: Record<string, { status?: string }> = {};
-  try {
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as {
-      skills?: Record<string, { status?: string }>;
-    };
-    entries = manifest.skills ?? {};
-  } catch {
-    result.manifestUnreadable = true;
-    return result;
+function copyDirRecursive(src: string, dest: string): void {
+  if (!existsSync(dest)) {
+    mkdirSync(dest, { recursive: true });
   }
-  const skillsDir = join(configDir, 'skills');
-  const disabledSet = new Set(disabled);
-  for (const [name, entry] of Object.entries(entries)) {
-    // Reject directory aliases as well as path traversal from JSON names.
-    if (!name || name === '.' || name === '..' || basename(name) !== name) {
-      continue;
-    }
-    const dir = join(skillsDir, name);
-    const customized =
-      entry?.status === 'customized' || entry?.status === 'conflict';
-    if (customized && disabledSet.has(name)) {
-      // Disabled + user-edited: preserve the data, stop the shadow.
-      try {
-        renameSync(dir, `${dir}.omos-backup`);
-        result.backedUp.push(name);
-      } catch {
-        // Best effort.
+
+  const entries = readdirSync(src);
+  for (const entry of entries) {
+    const srcPath = join(src, entry);
+    const destPath = join(dest, entry);
+    const stat = statSync(srcPath);
+
+    if (stat.isDirectory()) {
+      copyDirRecursive(srcPath, destPath);
+    } else {
+      const destDir = dirname(destPath);
+      if (!existsSync(destDir)) {
+        mkdirSync(destDir, { recursive: true });
       }
-      continue;
-    }
-    if (customized) {
-      result.kept.push(name);
-      continue;
-    }
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      // Best effort — the host simply keeps loading whatever survived.
+      copyFileSync(srcPath, destPath);
     }
   }
-  rmSync(legacyDir, { recursive: true, force: true });
-  return result;
+}
+
+/**
+ * Install a custom skill by copying from src/skills/ to the OpenCode skills directory
+ * @param skill - The custom skill to install
+ * @param projectRoot - Root directory of oh-my-opencode-slim project
+ * @returns True if installation succeeded, false otherwise
+ */
+export function installCustomSkill(skill: CustomSkill): boolean {
+  try {
+    const packageRoot = fileURLToPath(new URL('../..', import.meta.url));
+    const sourcePath = join(packageRoot, skill.sourcePath);
+    const targetPath = join(getCustomSkillsDir(), skill.name);
+
+    // Validate source exists
+    if (!existsSync(sourcePath)) {
+      console.error(`Custom skill source not found: ${sourcePath}`);
+      return false;
+    }
+
+    // Copy skill directory
+    copyDirRecursive(sourcePath, targetPath);
+
+    return true;
+  } catch (error) {
+    console.error(`Failed to install custom skill: ${skill.name}`, error);
+    return false;
+  }
 }

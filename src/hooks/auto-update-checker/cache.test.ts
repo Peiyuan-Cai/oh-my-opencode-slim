@@ -1,32 +1,7 @@
-import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
+import { describe, expect, mock, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-const tempDirs: string[] = [];
-const originalXdgCacheHome = process.env.XDG_CACHE_HOME;
-
-afterEach(() => {
-  mock.restore();
-  if (originalXdgCacheHome === undefined) {
-    delete process.env.XDG_CACHE_HOME;
-  } else {
-    process.env.XDG_CACHE_HOME = originalXdgCacheHome;
-  }
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-function createTempRoot(): string {
-  const root = fs.mkdtempSync(join(tmpdir(), 'omo-cache-'));
-  tempDirs.push(root);
-  return root;
-}
-
-// Compare paths without caring about the platform separator.
-const normalizeSlashes = (value: string): string => value.replace(/\\/g, '/');
+import path from 'node:path';
+import { CACHE_DIR } from './constants';
 
 // Mock logger to avoid noise
 mock.module('../../utils/logger', () => ({
@@ -43,95 +18,81 @@ mock.module('../../cli/config-manager', () => ({
 
 // Cache buster for dynamic imports
 let importCounter = 0;
+const packageInstallDir = path.join(
+  '/home',
+  'user',
+  '.cache',
+  'opencode',
+  'packages',
+  'oh-my-opencode-slim@latest',
+);
+const packageJsonPath = path.join(packageInstallDir, 'package.json');
+const runtimePackageJsonPath = path.join(
+  packageInstallDir,
+  'node_modules',
+  'oh-my-opencode-slim',
+  'package.json',
+);
+const installedPackagePath = path.join(
+  packageInstallDir,
+  'node_modules',
+  'oh-my-opencode-slim',
+);
 
 describe('auto-update-checker/cache', () => {
   describe('resolveInstallContext', () => {
     test('detects OpenCode packages install root from runtime package path', async () => {
-      const wrapperDir =
-        '/home/user/.cache/opencode/packages/oh-my-opencode-slim@latest';
-      const wrapperPackageJson = join(wrapperDir, 'package.json');
       const existsSpy = spyOn(fs, 'existsSync').mockImplementation(
-        (p: string) =>
-          normalizeSlashes(String(p)) === normalizeSlashes(wrapperPackageJson),
+        (p: string) => p === packageJsonPath,
       );
-      const { resolveInstallContext } = await import(
-        `./cache?test=${importCounter++}`
-      );
+      try {
+        const { resolveInstallContext } = await import(
+          `./cache?test=${importCounter++}`
+        );
+        const context = resolveInstallContext(runtimePackageJsonPath);
 
-      const context = resolveInstallContext(
-        '/home/user/.cache/opencode/packages/oh-my-opencode-slim@latest/node_modules/oh-my-opencode-slim/package.json',
-      );
-
-      expect(context).toEqual({
-        installDir: wrapperDir,
-        packageJsonPath: wrapperPackageJson,
-      });
-
-      existsSpy.mockRestore();
-    });
-
-    test('returns null for the OpenCode v2 npm runtime path', async () => {
-      const existsSpy = spyOn(fs, 'existsSync').mockImplementation(() => true);
-      const { resolveInstallContext } = await import(
-        `./cache?test=${importCounter++}`
-      );
-
-      const context = resolveInstallContext(
-        '/home/user/.cache/opencode/npm/oh-my-opencode-slim@latest/1757000000000/node_modules/oh-my-opencode-slim/package.json',
-      );
-
-      expect(context).toBeNull();
-
-      existsSpy.mockRestore();
+        expect(context).toEqual({
+          installDir: packageInstallDir,
+          packageJsonPath,
+        });
+      } finally {
+        existsSpy.mockRestore();
+      }
     });
 
     test('does not fall back to legacy cache when runtime path is active but wrapper root is invalid', async () => {
       const existsSpy = spyOn(fs, 'existsSync').mockImplementation(() => false);
-      const { resolveInstallContext } = await import(
-        `./cache?test=${importCounter++}`
-      );
-
-      const context = resolveInstallContext(
-        '/home/user/.cache/opencode/packages/oh-my-opencode-slim@latest/node_modules/oh-my-opencode-slim/package.json',
-      );
-
-      expect(context).toBeNull();
-
-      existsSpy.mockRestore();
+      try {
+        const { resolveInstallContext } = await import(
+          `./cache?test=${importCounter++}`
+        );
+        expect(resolveInstallContext(runtimePackageJsonPath)).toBeNull();
+      } finally {
+        existsSpy.mockRestore();
+      }
     });
   });
 
   describe('preparePackageUpdate', () => {
     test('returns null when no install context is available', async () => {
       const existsSpy = spyOn(fs, 'existsSync').mockReturnValue(false);
-      const { preparePackageUpdate } = await import(
-        `./cache?test=${importCounter++}`
-      );
-
-      const result = preparePackageUpdate('1.0.1');
-      expect(result).toBeNull();
-
-      existsSpy.mockRestore();
+      try {
+        const { preparePackageUpdate } = await import(
+          `./cache?test=${importCounter++}`
+        );
+        expect(preparePackageUpdate('1.0.1')).toBeNull();
+      } finally {
+        existsSpy.mockRestore();
+      }
     });
 
     test('updates packages wrapper dependency and removes installed package', async () => {
-      const wrapperDir =
-        '/home/user/.cache/opencode/packages/oh-my-opencode-slim@latest';
-      const wrapperPackageJson = join(wrapperDir, 'package.json');
       const existsSpy = spyOn(fs, 'existsSync').mockImplementation(
-        (p: string) =>
-          normalizeSlashes(String(p)) ===
-            normalizeSlashes(wrapperPackageJson) ||
-          normalizeSlashes(String(p)) ===
-            normalizeSlashes(
-              join(wrapperDir, 'node_modules', 'oh-my-opencode-slim'),
-            ),
+        (p: string) => p === packageJsonPath || p === installedPackagePath,
       );
       const readSpy = spyOn(fs, 'readFileSync').mockImplementation(
         (p: string) => {
-          if (
-            normalizeSlashes(String(p)) === normalizeSlashes(wrapperPackageJson)
-          ) {
+          if (p === packageJsonPath) {
             return JSON.stringify({
               dependencies: {
                 'oh-my-opencode-slim': '0.9.1',
@@ -148,248 +109,69 @@ describe('auto-update-checker/cache', () => {
         },
       );
       const rmSyncSpy = spyOn(fs, 'rmSync').mockReturnValue(undefined);
-      const mkdirSyncSpy = spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
-      const mkdtempSyncSpy = spyOn(fs, 'mkdtempSync').mockReturnValue(
-        '/home/user/.cache/opencode/packages/.oh-my-opencode-slim@0.9.11.staging-test',
-      );
-      const { preparePackageUpdate } = await import(
-        `./cache?test=${importCounter++}`
-      );
-
-      const result = preparePackageUpdate(
-        '0.9.11',
-        'oh-my-opencode-slim',
-        '/home/user/.cache/opencode/packages/oh-my-opencode-slim@latest/node_modules/oh-my-opencode-slim/package.json',
-      );
-
-      expect(result).toEqual({
-        stagingDir:
-          '/home/user/.cache/opencode/packages/.oh-my-opencode-slim@0.9.11.staging-test',
-        targetDir: join(
-          '/home/user/.cache/opencode/packages',
-          'oh-my-opencode-slim@0.9.11',
-        ),
-      });
-      expect(writtenData.length).toBeGreaterThan(0);
-      expect(JSON.parse(writtenData[0])).toEqual({
-        private: true,
-        dependencies: {
-          'oh-my-opencode-slim': '0.9.11',
-        },
-      });
-
-      existsSpy.mockRestore();
-      readSpy.mockRestore();
-      writeSpy.mockRestore();
-      rmSyncSpy.mockRestore();
-      mkdirSyncSpy.mockRestore();
-      mkdtempSyncSpy.mockRestore();
-    });
-
-    test('rejects a legacy <cache> root runtime layout', async () => {
-      // The legacy layout installed the plugin directly under the cache root,
-      // with no packages/oh-my-opencode-slim@<spec> wrapper. Its runtime
-      // package path must reach the v1 shape check and be rejected (rather
-      // than short-circuiting on a missing runtime path).
-      const existsSpy = spyOn(fs, 'existsSync').mockImplementation(() => true);
-      const { preparePackageUpdate } = await import(
-        `./cache?test=${importCounter++}`
-      );
-
-      const result = preparePackageUpdate(
-        '1.0.1',
-        'oh-my-opencode-slim',
-        '/home/user/.cache/opencode/node_modules/oh-my-opencode-slim/package.json',
-      );
-
-      expect(result).toBeNull();
-
-      existsSpy.mockRestore();
-    });
-  });
-
-  describe('getCacheDir', () => {
-    test('honors XDG_CACHE_HOME and otherwise falls back to ~/.cache', async () => {
-      const original = process.env.XDG_CACHE_HOME;
       try {
-        process.env.XDG_CACHE_HOME = 'C:/xdg-cache-home';
-        const xdg = (await import(`./constants?test=${importCounter++}`)) as {
-          CACHE_DIR: string;
-        };
-        expect(xdg.CACHE_DIR).toBe(join('C:/xdg-cache-home', 'opencode'));
+        const { preparePackageUpdate } = await import(
+          `./cache?test=${importCounter++}`
+        );
+        const result = preparePackageUpdate(
+          '0.9.11',
+          'oh-my-opencode-slim',
+          runtimePackageJsonPath,
+        );
 
-        delete process.env.XDG_CACHE_HOME;
-        const fallback = (await import(
-          `./constants?test=${importCounter++}`
-        )) as { CACHE_DIR: string };
-        expect(fallback.CACHE_DIR).toBe(join(homedir(), '.cache', 'opencode'));
+        expect(result).toBe(packageInstallDir);
+        expect(rmSyncSpy).toHaveBeenCalledWith(installedPackagePath, {
+          recursive: true,
+          force: true,
+        });
+        expect(writtenData.length).toBeGreaterThan(0);
+        expect(JSON.parse(writtenData[0])).toEqual({
+          dependencies: {
+            'oh-my-opencode-slim': '0.9.11',
+          },
+        });
       } finally {
-        if (original === undefined) delete process.env.XDG_CACHE_HOME;
-        else process.env.XDG_CACHE_HOME = original;
+        existsSpy.mockRestore();
+        readSpy.mockRestore();
+        writeSpy.mockRestore();
+        rmSyncSpy.mockRestore();
       }
     });
-  });
 
-  describe('publishPackageUpdate transaction', () => {
-    function createPackage(dir: string, version: string): void {
-      const packageDir = join(dir, 'node_modules', 'oh-my-opencode-slim');
-      fs.mkdirSync(packageDir, { recursive: true });
-      fs.writeFileSync(
-        join(packageDir, 'package.json'),
-        JSON.stringify({ name: 'oh-my-opencode-slim', version }),
+    test('keeps working when dependency is already on target version', async () => {
+      const existsSpy = spyOn(fs, 'existsSync').mockImplementation(
+        (p: string) =>
+          p === path.join(CACHE_DIR, 'package.json') ||
+          p === path.join(CACHE_DIR, 'node_modules', 'oh-my-opencode-slim'),
       );
-    }
-
-    function createPrepared(root: string, version: string) {
-      const parent = join(root, 'packages');
-      fs.mkdirSync(parent, { recursive: true });
-      const stagingDir = fs.mkdtempSync(join(parent, '.staging-'));
-      return {
-        stagingDir,
-        targetDir: join(parent, `oh-my-opencode-slim@${version}`),
-      };
-    }
-
-    test('publishes a verified staged package atomically', async () => {
-      const root = createTempRoot();
-      const prepared = createPrepared(root, '1.2.4');
-      createPackage(prepared.stagingDir, '1.2.4');
-      const { publishPackageUpdate } = await import(
-        `./cache?test=${importCounter++}`
+      const readSpy = spyOn(fs, 'readFileSync').mockReturnValue(
+        JSON.stringify({
+          dependencies: {
+            'oh-my-opencode-slim': '1.0.1',
+          },
+        }),
       );
+      const writeSpy = spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      const rmSyncSpy = spyOn(fs, 'rmSync').mockReturnValue(undefined);
+      try {
+        const { preparePackageUpdate } = await import(
+          `./cache?test=${importCounter++}`
+        );
+        const result = preparePackageUpdate(
+          '1.0.1',
+          'oh-my-opencode-slim',
+          null,
+        );
 
-      expect(publishPackageUpdate(prepared, '1.2.4')).toBe(prepared.targetDir);
-      expect(fs.existsSync(prepared.stagingDir)).toBe(false);
-      expect(fs.existsSync(join(prepared.targetDir, 'node_modules'))).toBe(
-        true,
-      );
-      fs.rmSync(root, { recursive: true, force: true });
-    });
-
-    test('cleans staging when a valid concurrent target already exists', async () => {
-      const root = createTempRoot();
-      const prepared = createPrepared(root, '1.2.4');
-      createPackage(prepared.stagingDir, '1.2.4');
-      createPackage(prepared.targetDir, '1.2.4');
-      const { publishPackageUpdate } = await import(
-        `./cache?test=${importCounter++}`
-      );
-
-      expect(publishPackageUpdate(prepared, '1.2.4')).toBe(prepared.targetDir);
-      expect(fs.existsSync(prepared.stagingDir)).toBe(false);
-      expect(
-        fs
-          .readdirSync(join(root, 'packages'))
-          .some((name) => name.includes('invalid-')),
-      ).toBe(false);
-      fs.rmSync(root, { recursive: true, force: true });
-    });
-
-    test('replaces an invalid target and removes its quarantine', async () => {
-      const root = createTempRoot();
-      const prepared = createPrepared(root, '1.2.4');
-      createPackage(prepared.stagingDir, '1.2.4');
-      fs.mkdirSync(prepared.targetDir, { recursive: true });
-      fs.writeFileSync(join(prepared.targetDir, 'package.json'), '{}');
-      const { publishPackageUpdate } = await import(
-        `./cache?test=${importCounter++}`
-      );
-
-      expect(publishPackageUpdate(prepared, '1.2.4')).toBe(prepared.targetDir);
-      expect(
-        fs
-          .readdirSync(join(root, 'packages'))
-          .some((name) => name.includes('invalid-')),
-      ).toBe(false);
-      expect(fs.existsSync(prepared.stagingDir)).toBe(false);
-      fs.rmSync(root, { recursive: true, force: true });
-    });
-
-    test('removes an unverifiable freshly published target and staging', async () => {
-      const root = createTempRoot();
-      const prepared = createPrepared(root, '1.2.4');
-      createPackage(prepared.stagingDir, '1.2.3');
-      const { publishPackageUpdate } = await import(
-        `./cache?test=${importCounter++}`
-      );
-
-      expect(publishPackageUpdate(prepared, '1.2.4')).toBeNull();
-      expect(fs.existsSync(prepared.targetDir)).toBe(false);
-      expect(fs.existsSync(prepared.stagingDir)).toBe(false);
-      fs.rmSync(root, { recursive: true, force: true });
-    });
-
-    test('restores the prior usable target when replacement verification fails', async () => {
-      const root = createTempRoot();
-      const prepared = createPrepared(root, '1.2.4');
-      createPackage(prepared.targetDir, '1.2.3');
-      createPackage(prepared.stagingDir, '1.2.3');
-      const { publishPackageUpdate } = await import(
-        `./cache?test=${importCounter++}`
-      );
-
-      expect(publishPackageUpdate(prepared, '1.2.4')).toBeNull();
-      expect(
-        JSON.parse(
-          fs.readFileSync(
-            join(
-              prepared.targetDir,
-              'node_modules',
-              'oh-my-opencode-slim',
-              'package.json',
-            ),
-            'utf-8',
-          ),
-        ),
-      ).toEqual({ name: 'oh-my-opencode-slim', version: '1.2.3' });
-      expect(fs.existsSync(prepared.stagingDir)).toBe(false);
-      expect(
-        fs
-          .readdirSync(join(root, 'packages'))
-          .some((name) => name.includes('invalid-')),
-      ).toBe(false);
-      fs.rmSync(root, { recursive: true, force: true });
-    });
-  });
-
-  describe('acquirePackageUpdateLock', () => {
-    test('creates and releases a hidden lock dir next to the target install dir', async () => {
-      const root = createTempRoot();
-      const targetDir = join(root, 'packages', 'oh-my-opencode-slim@1.2.4');
-      const lockDir = `${join(
-        root,
-        'packages',
-        '.oh-my-opencode-slim@1.2.4.install',
-      )}.lock`;
-      const { acquirePackageUpdateLock } = await import(
-        `./cache?test=${importCounter++}`
-      );
-
-      const release = await acquirePackageUpdateLock(targetDir);
-      expect(release).not.toBeNull();
-      expect(fs.existsSync(lockDir)).toBe(true);
-      release?.();
-      expect(fs.existsSync(lockDir)).toBe(false);
-      fs.rmSync(root, { recursive: true, force: true });
-    });
-
-    test('returns null when a live process holds the lock', async () => {
-      const root = createTempRoot();
-      const targetDir = join(root, 'packages', 'oh-my-opencode-slim@1.2.4');
-      const lockDir = `${join(
-        root,
-        'packages',
-        '.oh-my-opencode-slim@1.2.4.install',
-      )}.lock`;
-      fs.mkdirSync(lockDir, { recursive: true });
-      fs.writeFileSync(join(lockDir, 'owner'), String(process.pid));
-      const { acquirePackageUpdateLock } = await import(
-        `./cache?test=${importCounter++}`
-      );
-
-      // Small timeout override keeps the retry loop bounded.
-      expect(await acquirePackageUpdateLock(targetDir, 50)).toBeNull();
-      fs.rmSync(root, { recursive: true, force: true });
+        expect(result).toBe(CACHE_DIR);
+        expect(writeSpy).not.toHaveBeenCalled();
+        expect(rmSyncSpy).toHaveBeenCalled();
+      } finally {
+        existsSpy.mockRestore();
+        readSpy.mockRestore();
+        writeSpy.mockRestore();
+        rmSyncSpy.mockRestore();
+      }
     });
   });
 });

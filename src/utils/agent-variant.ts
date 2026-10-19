@@ -1,10 +1,10 @@
 import {
-  AGENT_ALIASES,
-  type AgentOverrideConfig,
   ALL_AGENT_NAMES,
+  getAgentOverride,
+  getCustomAgentNames,
+  type PluginConfig,
 } from '../config';
-import type { RuntimeConfig } from '../config/runtime';
-import { lookupWithAliases } from '../config/utils';
+import { log } from './logger';
 
 /**
  * Normalizes an agent name by trimming whitespace and removing the optional @ prefix.
@@ -21,20 +21,48 @@ export function normalizeAgentName(agentName: string): string {
   return trimmed.startsWith('@') ? trimmed.slice(1) : trimmed;
 }
 
-function getRuntimeAgentNames(runtime: RuntimeConfig): string[] {
+function getRuntimeAgentNames(config?: PluginConfig): string[] {
   const unique = new Set<string>([
     ...ALL_AGENT_NAMES,
-    ...runtime.customAgentNames,
+    ...getCustomAgentNames(config),
   ]);
   return [...unique];
 }
 
-/** Plugin-layer override for a name, alias-aware (no host merge). */
-function getPluginOverride(
-  runtime: RuntimeConfig,
-  name: string,
-): AgentOverrideConfig | undefined {
-  return lookupWithAliases(runtime.agents(), name);
+/**
+ * Resolves the variant configuration for a specific agent.
+ *
+ * Looks up the agent's variant in the plugin configuration. Returns undefined if:
+ * - No config is provided
+ * - The agent has no variant configured
+ * - The variant is not a string
+ * - The variant is empty or whitespace-only
+ *
+ * @param config - The plugin configuration object
+ * @param agentName - The name of the agent (with or without @ prefix)
+ * @returns The trimmed variant string, or undefined if no valid variant is found
+ *
+ * @example
+ * resolveAgentVariant(config, "@oracle") // returns "high" if configured
+ */
+export function resolveAgentVariant(
+  config: PluginConfig | undefined,
+  agentName: string,
+): string | undefined {
+  const normalized = resolveRuntimeAgentName(config, agentName);
+  const rawVariant = getAgentOverride(config, normalized)?.variant;
+
+  if (typeof rawVariant !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = rawVariant.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  log(`[variant] resolved variant="${trimmed}" for agent "${normalized}"`);
+  return trimmed;
 }
 
 /**
@@ -46,7 +74,7 @@ function getPluginOverride(
  * - displayName aliases (e.g. "advisor" -> "oracle")
  */
 export function resolveRuntimeAgentName(
-  runtime: RuntimeConfig,
+  config: PluginConfig | undefined,
   agentName: string,
 ): string {
   const normalized = normalizeAgentName(agentName);
@@ -58,8 +86,8 @@ export function resolveRuntimeAgentName(
     return normalized;
   }
 
-  for (const internalName of getRuntimeAgentNames(runtime)) {
-    const displayName = getPluginOverride(runtime, internalName)?.displayName;
+  for (const internalName of getRuntimeAgentNames(config)) {
+    const displayName = getAgentOverride(config, internalName)?.displayName;
     if (!displayName) {
       continue;
     }
@@ -69,22 +97,22 @@ export function resolveRuntimeAgentName(
     }
   }
 
-  return AGENT_ALIASES[normalized] ?? normalized;
+  return normalized;
 }
 
-export function escapeRegExp(value: string): string {
+function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export type DisplayNameMentionRewriter = (text: string) => string;
 
 export function createDisplayNameMentionRewriter(
-  runtime: RuntimeConfig,
+  config: PluginConfig | undefined,
 ): DisplayNameMentionRewriter {
   const replacements: Array<{ regex: RegExp; internalName: string }> = [];
 
-  for (const internalName of getRuntimeAgentNames(runtime)) {
-    const displayName = getPluginOverride(runtime, internalName)?.displayName;
+  for (const internalName of getRuntimeAgentNames(config)) {
+    const displayName = getAgentOverride(config, internalName)?.displayName;
     if (!displayName) {
       continue;
     }
@@ -122,4 +150,43 @@ export function createDisplayNameMentionRewriter(
 
     return rewritten;
   };
+}
+
+/**
+ * Rewrites user-facing display-name mentions (e.g. @advisor) into internal
+ * agent mentions (e.g. @oracle) for runtime routing.
+ */
+export function rewriteDisplayNameMentions(
+  config: PluginConfig | undefined,
+  text: string,
+): string {
+  return createDisplayNameMentionRewriter(config)(text);
+}
+
+/**
+ * Applies a variant to a request body if the body doesn't already have one.
+ *
+ * This function will NOT override an existing variant in the body. If no variant
+ * is provided or the body already has a variant, the original body is returned.
+ *
+ * @template T - The type of the body object, must have an optional variant property
+ * @param variant - The variant string to apply (or undefined)
+ * @param body - The request body object
+ * @returns The body with the variant applied (new object) or the original body unchanged
+ *
+ * @example
+ * applyAgentVariant("high", { agent: "oracle" }) // returns { agent: "oracle", variant: "high" }
+ * applyAgentVariant("high", { agent: "oracle", variant: "low" }) // returns original body with variant: "low"
+ */
+export function applyAgentVariant<T extends { variant?: string }>(
+  variant: string | undefined,
+  body: T,
+): T {
+  if (!variant) {
+    return body;
+  }
+  if (body.variant) {
+    return body;
+  }
+  return { ...body, variant };
 }

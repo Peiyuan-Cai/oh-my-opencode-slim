@@ -1,34 +1,10 @@
-export type ModelRef = {
-  /** Provider/model string (e.g. "openai/gpt-4o-mini"). */
-  id: string;
-  /** Optional model variant annotation. */
-  variant?: string;
-};
-
 export type SmartfetchOptions = {
   binaryDir?: string;
-  imageRouting?: () => 'auto' | 'direct';
-  /**
-   * Dedicated model(s) for secondary-model summarization.
-   * Each entry is tried in order; the first to return usable text is used.
-   */
-  webfetchModels?: ModelRef[];
-  /**
-   * Getter for the host's `small_model` from the already-loaded merged
-   * OpenCode config. Read once into memory at plugin construction; the
-   * getter only keeps the value in sync when the host config hook fires
-   * after tool construction. Never touches disk.
-   */
-  smallModelRef?: () => string | undefined;
-  /** Explorer agent model id, resolved from in-memory config at construction. */
-  explorerModel?: string;
 };
 
 export type SecondaryModel = {
   providerID: string;
   modelID: string;
-  /** Optional model variant passed at the body level. */
-  variant?: string;
 };
 
 export type RedirectStep = {
@@ -38,6 +14,7 @@ export type RedirectStep = {
 };
 
 export type CachedFetch = {
+  requestedUrl: string;
   finalUrl: string;
   statusCode: number;
   contentType: string;
@@ -62,12 +39,20 @@ export type CachedFetch = {
   wordCount: number;
   qualitySignals?: string[];
   llmsProbeError?: string;
+  llmsProbeTruncated?: boolean;
+  cacheRevalidated?: boolean;
+  upstreamStatusCode?: number;
+  cacheHit?: boolean;
   decodedCharset?: string;
   decodeFallback?: boolean;
   decodeWarning?: string;
+  secondaryModelInputTruncated?: boolean;
+  secondaryModelInputChars?: number;
+  secondaryModelSourceChars?: number;
 };
 
 export type BinaryFetch = {
+  requestedUrl: string;
   finalUrl: string;
   statusCode: number;
   contentType: string;
@@ -83,8 +68,13 @@ export type BinaryFetch = {
   binary: true;
   binaryKind: 'image' | 'audio' | 'video' | 'pdf' | 'binary';
   downloadLimitBytes?: number;
+  metadataOnly?: boolean;
   data?: Uint8Array;
   llmsProbeError?: string;
+  llmsProbeTruncated?: boolean;
+  cacheRevalidated?: boolean;
+  upstreamStatusCode?: number;
+  cacheHit?: boolean;
 };
 
 export type FetchResult = CachedFetch | BinaryFetch;

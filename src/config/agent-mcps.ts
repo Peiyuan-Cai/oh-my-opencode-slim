@@ -1,6 +1,9 @@
-import type { AgentName } from './constants';
-import type { RuntimeConfig } from './runtime';
-import { lookupWithAliases } from './utils';
+import {
+  type AgentName,
+  getAgentOverride,
+  McpNameSchema,
+  type PluginConfig,
+} from '.';
 
 /** Default MCPs per agent - "*" means all MCPs, "!item" excludes specific MCPs */
 
@@ -8,7 +11,8 @@ export const DEFAULT_AGENT_MCPS: Record<AgentName, string[]> = {
   orchestrator: ['*', '!context7'],
   designer: [],
   oracle: [],
-  explorer: ['context7', 'gh_grep'],
+  librarian: ['websearch', 'context7', 'grep_app'],
+  explorer: [],
   fixer: [],
   observer: [],
   council: [],
@@ -18,10 +22,7 @@ export const DEFAULT_AGENT_MCPS: Record<AgentName, string[]> = {
 /**
  * Parse a list with wildcard and exclusion syntax.
  */
-export function parseList(
-  items: readonly string[],
-  allAvailable: readonly string[],
-): string[] {
+export function parseList(items: string[], allAvailable: string[]): string[] {
   if (!items || items.length === 0) {
     return [];
   }
@@ -43,15 +44,47 @@ export function parseList(
 }
 
 /**
- * Get the MCP list for an agent (from config or defaults).
- * Reads the merged (preset-aware) plugin-layer agents via RuntimeConfig.
+ * Get available MCP names from schema and config.
  */
+export function getManagedMcpNames(): string[] {
+  return McpNameSchema.options;
+}
+
+export function getAvailableMcpNames(config?: PluginConfig): string[] {
+  const builtinMcps = getManagedMcpNames();
+  const disabled = new Set(config?.disabled_mcps ?? []);
+  return builtinMcps.filter((name) => !disabled.has(name));
+}
+
+/**
+ * Get the MCP list for an agent (from config or defaults).
+ */
+
+/**
+ * Build agent permission rules for managed MCPs only.
+ */
+export function buildAgentMcpPermissionRules(
+  agentMcps: string[],
+  existingPermissions: Record<string, unknown> = {},
+): Record<string, 'allow' | 'deny'> {
+  const rules: Record<string, 'allow' | 'deny'> = {};
+  const allowedMcps = parseList(agentMcps, getManagedMcpNames());
+
+  for (const mcpName of getManagedMcpNames()) {
+    const sanitizedMcpName = mcpName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const permissionKey = `${sanitizedMcpName}_*`;
+    if (permissionKey in existingPermissions) continue;
+    rules[permissionKey] = allowedMcps.includes(mcpName) ? 'allow' : 'deny';
+  }
+
+  return rules;
+}
+
 export function getAgentMcpList(
   agentName: string,
-  runtime: RuntimeConfig,
+  config?: PluginConfig,
 ): string[] {
-  const agents = runtime.agents();
-  const agentConfig = lookupWithAliases(agents, agentName);
+  const agentConfig = getAgentOverride(config, agentName);
   if (agentConfig?.mcps !== undefined) {
     return agentConfig.mcps;
   }

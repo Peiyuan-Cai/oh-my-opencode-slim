@@ -1,114 +1,263 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  createAgents,
-  projectAgentRuntimeState,
-  resolvePrimaryModelValue,
-} from '../agents';
 import type { ModelEntry } from '../config/schema';
-import { RuntimeConfig } from './runtime';
+import { normalizeFallbackChainsForPreset } from './fallback-chains';
+
+/**
+ * Test the model array resolution logic that runs in the config hook.
+ * This logic determines which model to use from an effective model array.
+ *
+ * The resolver always picks the first model in the effective array,
+ * regardless of provider configuration. This is correct because:
+ * - Not all providers require entries in opencodeConfig.provider — some are
+ *   loaded automatically by opencode (e.g. github-copilot, openrouter).
+ * - We cannot distinguish "auto-loaded provider" from "provider not configured"
+ *   without calling the API, which isn't available at config-hook time.
+ * - Runtime failover (rate-limit handling) is handled separately by
+ *   ForegroundFallbackManager.
+ */
 
 describe('model array resolution', () => {
-  describe('resolvePrimaryModelValue', () => {
-    test('extracts first model from object model array', () => {
-      const modelArray: ModelEntry[] = [
-        { id: 'opencode/big-pickle', variant: 'high' },
-        { id: 'iflowcn/qwen3-235b-a22b-thinking-2507', variant: 'high' },
-      ];
+  /**
+   * Simulates the resolution logic from src/index.ts.
+   * Always returns the first model in the array.
+   */
+  function resolveModelFromArray(
+    modelArray: Array<{ id: string; variant?: string }>,
+  ): { model: string; variant?: string } | null {
+    if (!modelArray || modelArray.length === 0) return null;
 
-      expect(resolvePrimaryModelValue(modelArray)).toBe('opencode/big-pickle');
-    });
+    const chosen = modelArray[0];
+    return {
+      model: chosen.id,
+      variant: chosen.variant,
+    };
+  }
 
-    test('extracts first model from string array', () => {
-      const modelArray = [
-        'github-copilot/claude-opus-4.6',
-        'zai-coding-plan/glm-5',
-      ];
+  test('uses first model when no provider config exists', () => {
+    const modelArray: ModelEntry[] = [
+      { id: 'opencode/big-pickle', variant: 'high' },
+      { id: 'iflowcn/qwen3-235b-a22b-thinking-2507', variant: 'high' },
+    ];
 
-      expect(resolvePrimaryModelValue(modelArray)).toBe(
-        'github-copilot/claude-opus-4.6',
+    const result = resolveModelFromArray(modelArray);
+
+    expect(result?.model).toBe('opencode/big-pickle');
+    expect(result?.variant).toBe('high');
+  });
+
+  test('uses first model even when other providers are configured', () => {
+    const modelArray: ModelEntry[] = [
+      { id: 'github-copilot/claude-opus-4.6', variant: 'high' },
+      { id: 'zai-coding-plan/glm-5' },
+    ];
+
+    const result = resolveModelFromArray(modelArray);
+
+    // Auto-loaded provider should not be skipped in favor of configured one
+    expect(result?.model).toBe('github-copilot/claude-opus-4.6');
+    expect(result?.variant).toBe('high');
+  });
+
+  test('returns null for empty model array', () => {
+    const modelArray: ModelEntry[] = [];
+
+    const result = resolveModelFromArray(modelArray);
+
+    expect(result).toBeNull();
+  });
+});
+
+/**
+ * Tests for the fallback.chains merging logic that runs in the config hook.
+ * Mirrors the effectiveArrays construction in src/index.ts.
+ */
+describe('fallback.chains merging for foreground agents', () => {
+  /**
+   * Simulates the effectiveArrays construction + resolution from src/index.ts.
+   * Returns the resolved model string or null.
+   */
+  function resolveWithChains(opts: {
+    modelArray?: Array<{ id: string; variant?: string }>;
+    currentModel?: string;
+    chainModels?: string[];
+    preset?: string;
+    fallbackEnabled?: boolean;
+  }): string | null {
+    const {
+      modelArray,
+      currentModel,
+      chainModels,
+      preset,
+      fallbackEnabled = true,
+    } = opts;
+
+    // Build effectiveArrays (mirrors index.ts logic)
+    const effectiveArray: Array<{ id: string; variant?: string }> = modelArray
+      ? [...modelArray]
+      : [];
+
+    if (fallbackEnabled && chainModels && chainModels.length > 0) {
+      const normalized = normalizeFallbackChainsForPreset(
+        {
+          [currentModel ?? 'orchestrator']: chainModels,
+        },
+        preset,
       );
-    });
+      const normalizedModels = Object.values(normalized)[0] ?? [];
+      if (effectiveArray.length === 0 && currentModel) {
+        effectiveArray.push({ id: currentModel });
+      }
+      const seen = new Set(effectiveArray.map((m) => m.id));
+      for (const chainModel of normalizedModels) {
+        if (!seen.has(chainModel)) {
+          seen.add(chainModel);
+          effectiveArray.push({ id: chainModel });
+        }
+      }
+    }
 
-    test('preserves direct string model value', () => {
-      expect(resolvePrimaryModelValue('openai/gpt-5')).toBe('openai/gpt-5');
-    });
+    if (effectiveArray.length === 0) return null;
 
-    test('returns undefined for empty array or non-model values', () => {
-      expect(resolvePrimaryModelValue([])).toBeUndefined();
-      expect(resolvePrimaryModelValue(null)).toBeUndefined();
-      expect(resolvePrimaryModelValue(undefined)).toBeUndefined();
-      expect(resolvePrimaryModelValue(123)).toBeUndefined();
+    // Resolution: always use first model in effective array
+    return effectiveArray[0].id;
+  }
+
+  test('primary model wins regardless of provider config', () => {
+    const result = resolveWithChains({
+      currentModel: 'anthropic/claude-opus-4-5',
+      chainModels: ['openai/gpt-4o'],
+    });
+    expect(result).toBe('anthropic/claude-opus-4-5');
+  });
+
+  test('chain is ignored when fallback disabled', () => {
+    const result = resolveWithChains({
+      currentModel: 'anthropic/claude-opus-4-5',
+      chainModels: ['openai/gpt-4o'],
+      fallbackEnabled: false,
+    });
+    // chain not applied; no effectiveArray entry → falls through to null (no _modelArray either)
+    expect(result).toBeNull();
+  });
+
+  test('_modelArray entries take precedence and chain appends after', () => {
+    const result = resolveWithChains({
+      modelArray: [
+        { id: 'anthropic/claude-opus-4-5' },
+        { id: 'anthropic/claude-sonnet-4-5' },
+      ],
+      chainModels: ['openai/gpt-4o'],
+    });
+    // First entry in _modelArray wins; chain only used for runtime failover
+    expect(result).toBe('anthropic/claude-opus-4-5');
+  });
+
+  test('duplicate model ids across array and chain are deduplicated', () => {
+    const result = resolveWithChains({
+      modelArray: [
+        { id: 'anthropic/claude-opus-4-5' },
+        { id: 'openai/gpt-4o' },
+      ],
+      chainModels: ['openai/gpt-4o', 'google/gemini-pro'],
+    });
+    expect(result).toBe('anthropic/claude-opus-4-5');
+  });
+
+  test('no currentModel and no _modelArray with chain still resolves', () => {
+    const result = resolveWithChains({
+      chainModels: ['openai/gpt-4o', 'anthropic/claude-sonnet-4-5'],
+    });
+    expect(result).toBe('openai/gpt-4o');
+  });
+
+  test('built-in provider not skipped when other providers are configured', () => {
+    // Regression test: github-copilot is auto-loaded by opencode and doesn't
+    // need an entry in opencodeConfig.provider. The resolver must not skip
+    // it in favor of a configured provider later in the chain.
+    const result = resolveWithChains({
+      currentModel: 'github-copilot/claude-opus-4.6',
+      chainModels: [
+        'github-copilot/gemini-3.1-pro-preview',
+        'zai-coding-plan/glm-5',
+      ],
+    });
+    expect(result).toBe('github-copilot/claude-opus-4.6');
+  });
+
+  test('normalizes scoped fallback chains for the active preset', () => {
+    const result = normalizeFallbackChainsForPreset(
+      {
+        'gpt-plus-max:orchestrator': [
+          'openai/o3',
+          'anthropic/claude-sonnet-4-6',
+        ],
+        'gpt-plus-max:oracle': ['anthropic/claude-opus-4-5'],
+      },
+      'gpt-plus-max',
+    );
+
+    expect(result).toEqual({
+      orchestrator: ['openai/o3', 'anthropic/claude-sonnet-4-6'],
+      oracle: ['anthropic/claude-opus-4-5'],
     });
   });
 
-  describe('projectAgentRuntimeState array-primary pass', () => {
-    test('resolves first model and variant from configured fallback chain', () => {
-      const runtime = RuntimeConfig.createDetached(
-        '/tmp/test-model-resolution-1',
-        {
-          agents: {
-            oracle: {
-              model: [
-                { id: 'opencode/big-pickle', variant: 'high' },
-                {
-                  id: 'iflowcn/qwen3-235b-a22b-thinking-2507',
-                  variant: 'high',
-                },
-              ],
-            },
-          },
-        } as unknown as Parameters<typeof RuntimeConfig.createDetached>[1],
-      );
+  test('ignores scoped fallback chains for other presets', () => {
+    const result = normalizeFallbackChainsForPreset(
+      {
+        'gpt-plus-max:orchestrator': ['openai/o3'],
+        orchestrator: ['anthropic/claude-sonnet-4-6'],
+      },
+      'other-preset',
+    );
 
-      const agentDefs = createAgents(runtime);
-      const agentConfigs: Record<string, Record<string, unknown>> = {
-        oracle: {},
-      };
-
-      const { profiles, projection } = projectAgentRuntimeState({
-        runtime,
-        agentDefs,
-        agentConfigs,
-      });
-
-      expect(agentConfigs.oracle.model).toBe('opencode/big-pickle');
-      expect(agentConfigs.oracle.variant).toBe('high');
-      expect(profiles.oracle.sidebarModel).toBe('opencode/big-pickle');
-      expect(profiles.oracle.sidebarVariant).toBe('high');
-      expect(projection.agentModels.oracle).toBe('opencode/big-pickle');
-      expect(projection.agentVariants.oracle).toBe('high');
+    expect(result).toEqual({
+      orchestrator: ['anthropic/claude-sonnet-4-6'],
     });
+  });
 
-    test('preserves user-selected host model over fallback chain', () => {
-      const runtime = RuntimeConfig.createDetached(
-        '/tmp/test-model-resolution-2',
-        {
-          agents: {
-            oracle: {
-              model: [
-                { id: 'fallback/first', variant: 'high' },
-                { id: 'fallback/second', variant: 'high' },
-              ],
-            },
-          },
-        } as unknown as Parameters<typeof RuntimeConfig.createDetached>[1],
-      );
+  test('does not emit scoped keys in normalized output', () => {
+    const result = normalizeFallbackChainsForPreset(
+      {
+        'gpt-plus-max:orchestrator': ['openai/o3'],
+      },
+      'gpt-plus-max',
+    );
 
-      const agentDefs = createAgents(runtime);
-      const agentConfigs: Record<string, Record<string, unknown>> = {
-        oracle: { model: 'user-chosen/pinned-model', variant: 'custom' },
-      };
+    expect(Object.keys(result).some((key) => key.includes(':'))).toBe(false);
+  });
 
-      const { profiles, projection } = projectAgentRuntimeState({
-        runtime,
-        agentDefs,
-        agentConfigs,
-      });
+  test('ignores empty fallback chain agent names', () => {
+    const result = normalizeFallbackChainsForPreset(
+      {
+        '': ['openai/o3'],
+        'gpt-plus-max:': ['anthropic/claude-sonnet-4-6'],
+        orchestrator: ['ustc-deepseek/deepseek-v4-pro'],
+      },
+      'gpt-plus-max',
+    );
 
-      expect(agentConfigs.oracle.model).toBe('user-chosen/pinned-model');
-      expect(agentConfigs.oracle.variant).toBe('custom');
-      expect(profiles.oracle.sidebarModel).toBe('user-chosen/pinned-model');
-      expect(projection.agentModels.oracle).toBe('user-chosen/pinned-model');
+    expect(result).toEqual({
+      orchestrator: ['ustc-deepseek/deepseek-v4-pro'],
+    });
+    expect(result).not.toHaveProperty('');
+  });
+
+  test('runtime preset takes precedence over config preset for scoped fallback chains', () => {
+    const configPreset = 'cheap';
+    const runtimePreset = 'powerful';
+    const activePreset = runtimePreset ?? configPreset ?? null;
+
+    const result = normalizeFallbackChainsForPreset(
+      {
+        'cheap:orchestrator': ['cheap/model'],
+        'powerful:orchestrator': ['powerful/model'],
+      },
+      activePreset,
+    );
+
+    expect(result).toEqual({
+      orchestrator: ['powerful/model'],
     });
   });
 });

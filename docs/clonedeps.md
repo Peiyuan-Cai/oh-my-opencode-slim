@@ -16,7 +16,7 @@ runtime, SDK, framework, plugin API, or other core dependency actually behaves.
 When you ask for cloned dependency source, the Orchestrator:
 
 1. Checks `.slim/clonedeps.json` first and reuses existing clones when possible.
-2. Asks `@explorer` for source-repo recommendations only if more context is
+2. Asks `@librarian` for source-repo recommendations only if more context is
    needed.
 3. Presents a small clone plan for approval.
 4. Clones each approved source repository once into
@@ -61,12 +61,9 @@ Ignored local clones live here, one folder per source repository:
 .slim/clonedeps/repos/<safe-repo-name>/
 ```
 
-The safe folder name is based on the repository owner/name, not the package
-name, and may include a pinned-release suffix when multiple revisions need to
-coexist. For example, the TypeScript OpenCode repository
-`https://github.com/anomalyco/opencode.git` becomes
-`.slim/clonedeps/repos/anomalyco__opencode-v1.18.13/` when pinned to that
-release.
+The safe folder name is derived from the repository owner/name, not the package
+name. For example, `https://github.com/opencode-ai/opencode.git` becomes
+`.slim/clonedeps/repos/opencode-ai__opencode/`.
 
 If multiple packages come from the same monorepo, they share one cloned repo path
 and use different `packagePath` values in the manifest.
@@ -80,23 +77,23 @@ This is the structured manifest. It is intentionally small and committable:
 ```json
 {
   "version": "1.0.0",
-  "updatedAt": "2026-08-04T19:15:39.000Z",
+  "updatedAt": "2026-05-12T00:00:00.000Z",
   "dependencies": [
     {
       "name": "@opencode-ai/plugin",
-      "resolvedVersion": "1.18.13",
-      "repoUrl": "https://github.com/anomalyco/opencode.git",
-      "ref": "v1.18.13@a105350812f05f914c768e468559dbd6bd508d8e",
-      "path": ".slim/clonedeps/repos/anomalyco__opencode-v1.18.13",
+      "resolvedVersion": "1.3.17",
+      "repoUrl": "https://github.com/opencode-ai/opencode.git",
+      "ref": "v1.3.17",
+      "path": ".slim/clonedeps/repos/opencode-ai__opencode",
       "packagePath": "packages/plugin",
       "reason": "Plugin API source used by the project"
     },
     {
       "name": "@opencode-ai/sdk",
-      "resolvedVersion": "1.18.13",
-      "repoUrl": "https://github.com/anomalyco/opencode.git",
-      "ref": "v1.18.13@a105350812f05f914c768e468559dbd6bd508d8e",
-      "path": ".slim/clonedeps/repos/anomalyco__opencode-v1.18.13",
+      "resolvedVersion": "1.3.17",
+      "repoUrl": "https://github.com/opencode-ai/opencode.git",
+      "ref": "v1.3.17",
+      "path": ".slim/clonedeps/repos/opencode-ai__opencode",
       "packagePath": "packages/sdk/js",
       "reason": "Core SDK source used to inspect runtime behavior"
     }
@@ -120,10 +117,8 @@ Example:
 Read-only dependency source repositories are available under
 `.slim/clonedeps/repos/` for inspection. Do not edit these clones.
 
-- `.slim/clonedeps/repos/anomalyco__opencode-v1.18.13/` -
-  `anomalyco/opencode` at
-  `v1.18.13@a105350812f05f914c768e468559dbd6bd508d8e`; inspect `packages/plugin` and
-  `packages/sdk/js` for OpenCode plugin and SDK internals.
+- `.slim/clonedeps/repos/opencode-ai__opencode/` — `opencode-ai/opencode` at
+  `v1.3.17`; inspect `packages/sdk/js` for OpenCode SDK internals.
 ```
 
 ---

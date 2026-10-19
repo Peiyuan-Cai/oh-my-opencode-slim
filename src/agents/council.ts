@@ -1,124 +1,154 @@
+import { shortModelLabel } from '../utils/session';
 import { type AgentDefinition, resolvePrompt } from './orchestrator';
-import { createSynthesisOnlyPermission } from './permissions';
 
 // NOTE: Councillor system prompts live in the councillor agent factory.
-// The council agent synthesizes councillor responses passed by the orchestrator.
+// The format functions below only structure the USER message content — the
+// agent factory provides the system prompt.
 
-export const COUNCIL_COMPACTION_EXCEPTION =
-  'Exception: if the host asks you to produce a session checkpoint or compaction summary in a specific template, follow that template exactly and do not use the council report format.';
+const COUNCIL_AGENT_PROMPT = `You are the Council agent — a multi-LLM \
+orchestration system that runs consensus across multiple models.
 
-/** Idempotent: `createAgents` and the later host-agent merge can drop
- * the exception. Re-apply it to the effective council prompt without
- * duplicating or imposing the synthesis reinforcement. */
-export function ensureCouncilCompactionException(prompt: string): string {
-  if (prompt.includes(COUNCIL_COMPACTION_EXCEPTION)) return prompt;
-  return `${prompt}\n\n${COUNCIL_COMPACTION_EXCEPTION}`;
-}
+**Tool**: You have access to the \`council_session\` tool.
 
-// The synthesis reinforcement must survive a custom prompt override: an
-// override that dropped the report format gets the compact fallback, which
-// carries the required structure itself. The compaction exception has triple
-// coverage — embedded in the base prompt, embedded in the fallback, and
-// re-applied idempotently by ensureCouncilCompactionException at all three
-// merge sites (createAgents' final-prompt pass, the registry's
-// effective-config pass, and its visible-projection pass) — so no path drops
-// it and no path doubles it.
-const COUNCIL_SYNTHESIS_FALLBACK = `\n\n---\n\nYou MUST produce: ## Council Response (the best synthesized answer), ## Per-Councillor Details (each councillor by exact seat name, e.g. "alpha", not the model label; note failed or timed-out seats instead of omitting them), and ## Council Summary (Consensus Level: unanimous|majority|split; Agreed Points; Disagreements + resolution; Remaining Uncertainty; Recommended Action). ${COUNCIL_COMPACTION_EXCEPTION}`;
+**When to use**:
+- When invoked by a user with a request
+- When you want multiple expert opinions on a complex problem
+- When higher confidence is needed through model consensus
 
-/** Idempotent single-track synthesis reinforcement. Applied to the FINAL
- * effective council prompt (after `resolvePrompt` and the host-agent merge
- * can replace the generated content) so a custom override cannot drop the
- * required output structure. A prompt that already carries the report format
- * — the base prompt's own sections, or a previous fallback append — is left
- * byte-identical; otherwise the compact fallback is appended. */
-export function ensureCouncilSynthesisReinforcement(prompt: string): string {
-  // Idempotence, verbatim disjunct: our own fallback marker.
-  if (prompt.includes('You MUST produce: ## Council Response')) return prompt;
-  // A prompt that keeps its own report format needs no reinforcement.
-  if (prompt.includes('## Council Response')) return prompt;
-  return prompt + COUNCIL_SYNTHESIS_FALLBACK;
-}
+**Usage**:
+1. Call the \`council_session\` tool with the user's prompt
+2. Optionally specify a preset (default: "default")
+3. Receive the councillor responses formatted for synthesis
+4. Synthesize the optimal final answer from the councillor responses
+5. Present the synthesized result to the user
 
-const COUNCIL_AGENT_PROMPT = `You are the Council agent - a \
-synthesizer for multi-model consensus.
-
-**Role**: You receive raw responses from multiple councillors (different models) and synthesize them into a structured council report. The orchestrator handles dispatch and provides the councillor results.
-
-You synthesize purely from the councillor responses provided in your context.
-
-**Synthesis Process** (MANDATORY - follow in order):
-1. Read the original user prompt (provided in the context)
-2. Review each councillor's response individually - note each councillor's \
-key insight and unique contribution by name
-3. Identify agreements and contradictions between councillors
-4. Resolve contradictions with explicit reasoning
-5. Synthesize the optimal final answer
-6. Format output per the Required Output Format below
+**Synthesis Guidelines**:
+When you receive councillor responses, synthesize them into the optimal final answer:
+- Review all councillor responses thoroughly and create the best possible answer
+- Credit specific insights from individual councillors by name (e.g., "alpha noted that...", "beta suggested...")
+- Clearly explain your reasoning for the chosen approach
+- Be transparent about trade-offs when different approaches have valid pros/cons
+- Note any remaining uncertainties or areas where further investigation is needed
+- If councillors disagree, explain the resolution and your reasoning
+- Acknowledge if consensus was impossible and explain why
+- Don't just average responses — choose the best approach and improve upon it
+- Present the synthesized solution with relevant code examples, concrete details, and clear explanations
 
 **Behavior**:
-- Credit specific insights from individual councillors using their names
-- If councillors disagree, explain why you chose one approach over another
-- Be transparent about trade-offs when different approaches have valid pros/cons
-- Do not omit per-councillor details from the final response
-- Do not collapse the output into only a final summary - keep the per-councillor and summary sections distinct
-- Don't just average responses - choose the best approach and improve upon it
+- Delegate requests directly to council_session
+- Don't pre-analyze or filter the prompt before calling council_session
+- Synthesize the councillor results into a comprehensive, coherent answer
+- Include attribution for valuable insights from specific councillors
+- If councillors disagree, explain why you chose one approach over another`;
 
-**Required Output Format**:
-${COUNCIL_COMPACTION_EXCEPTION}
-
-Always include these sections in your final response:
-
-## Council Response
-Provide the best synthesized answer. Integrate the strongest points from the \
-councillors, resolve disagreements, and give the user a clear final \
-recommendation or answer. Include relevant code examples and concrete details.
-
-## Per-Councillor Details
-For each councillor, show:
-- Their key insight, idea, or recommendation (using their exact name - the seat name, e.g. "alpha", not the model label)
-- Their confidence level (if expressed)
-- Notable points of agreement/disagreement with other councillors
-- If a councillor failed or timed out, note that status briefly instead of omitting it
-
-## Council Summary
-- **Consensus Level**: unanimous | majority | split (pick one)
-- **Agreed Points**: what all councillors agreed on
-- **Disagreements**: where councillors differed and your resolution
-- **Remaining Uncertainty**: any caveats, untested assumptions, or open questions the council could not fully resolve
-- **Recommended Action**: what to do next`;
-
-/**
- * Create the council agent definition.
- * The council agent synthesizes councillor responses into a structured report.
- * It does not dispatch councillors — the orchestrator handles that.
- */
 export function createCouncilAgent(
   model: string,
   customPrompt?: string,
   customAppendPrompt?: string,
 ): AgentDefinition {
-  // Base only: the synthesis reinforcement is applied at the assembly layer
-  // (agents/index.ts + registry.ts) to the FINAL effective prompt, because
-  // `resolvePrompt` and the host-agent merge replace the factory output
-  // after this returns.
   const prompt = resolvePrompt(
-    'council',
-    customPrompt,
-    undefined,
     COUNCIL_AGENT_PROMPT,
+    customPrompt,
     customAppendPrompt,
   );
 
-  return {
+  const definition: AgentDefinition = {
     name: 'council',
     description:
-      'Multi-model consensus agent that synthesizes viewpoints from council members',
+      'Multi-LLM council agent that synthesizes responses from multiple models for higher-quality outputs',
     config: {
-      model,
+      temperature: 0.1,
       prompt,
       permission: {
-        ...createSynthesisOnlyPermission(),
+        edit: 'deny',
+        write: 'deny',
+        bash: 'deny',
+        todowrite: 'deny',
       },
     },
   };
+
+  // Council's model comes from config override or is resolved at
+  // runtime; only set if a non-empty string is provided.
+  if (model) {
+    definition.config.model = model;
+  }
+
+  return definition;
+}
+
+/**
+ * Build the prompt for a specific councillor session.
+ *
+ * Returns the raw user prompt — the agent factory (councillor.ts) provides
+ * the system prompt with tool-aware instructions. No duplication.
+ *
+ * If a per-councillor prompt override is provided, it is prepended as
+ * role/guidance context before the user's question.
+ */
+export function formatCouncillorPrompt(
+  userPrompt: string,
+  councillorPrompt?: string,
+): string {
+  if (!councillorPrompt) return userPrompt;
+  return `${councillorPrompt}\n\n---\n\n${userPrompt}`;
+}
+
+/**
+ * Format councillor results for the council agent to synthesize.
+ *
+ * Formats councillor results as structured data that the council agent
+ * (which called the tool) will receive as the tool response. The council
+ * agent's system prompt contains synthesis instructions.
+ * Returns a special message when all councillors failed to produce output.
+ */
+export function formatCouncillorResults(
+  originalPrompt: string,
+  councillorResults: Array<{
+    name: string;
+    model: string;
+    status: string;
+    result?: string;
+    error?: string;
+  }>,
+): string {
+  const completedWithResults = councillorResults.filter(
+    (cr) => cr.status === 'completed' && cr.result,
+  );
+
+  const councillorSection = completedWithResults
+    .map((cr) => {
+      const shortModel = shortModelLabel(cr.model);
+      return `**${cr.name}** (${shortModel}):\n${cr.result}`;
+    })
+    .join('\n\n');
+
+  const failedSection = councillorResults
+    .filter((cr) => cr.status !== 'completed')
+    .map((cr) => `**${cr.name}**: ${cr.status} — ${cr.error ?? 'Unknown'}`)
+    .join('\n');
+
+  // Defensive guard: caller (runCouncil) short-circuits when all fail,
+  // but this function may be reused in other contexts.
+  if (completedWithResults.length === 0) {
+    const errorDetails = councillorResults
+      .map(
+        (cr) =>
+          `**${cr.name}** (${shortModelLabel(cr.model)}): ${cr.status} — ${cr.error ?? 'Unknown'}`,
+      )
+      .join('\n');
+
+    return `---\n\n**Original Prompt**:\n${originalPrompt}\n\n---\n\n**Councillor Responses**:\nAll councillors failed to produce output:\n${errorDetails}\n\nPlease generate a response based on the original prompt alone.`;
+  }
+
+  let prompt = `---\n\n**Original Prompt**:\n${originalPrompt}\n\n---\n\n**Councillor Responses**:\n${councillorSection}`;
+
+  if (failedSection) {
+    prompt += `\n\n---\n\n**Failed/Timed-out Councillors**:\n${failedSection}`;
+  }
+
+  prompt +=
+    '\n\n---\n\nYou MUST follow the Synthesis Process steps before producing output: review each councillor response individually, then produce the required output with a synthesized Council Response, per-councillor details using their exact names, and a Council Summary with consensus confidence rating (unanimous, majority, or split).';
+
+  return prompt;
 }

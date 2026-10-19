@@ -5,76 +5,8 @@ import type {
 } from './types';
 import { RawInterviewStateSchema, RawQuestionSchema } from './types';
 
-const OPEN_TAG = '<interview_state>';
-const CLOSE_TAG = '</interview_state>';
-
-export interface InterviewStateBlock {
-  start: number;
-  end: number;
-  json: string;
-}
-
-export function replaceInterviewStateBlocks(
-  text: string,
-  replace: (block: InterviewStateBlock) => string,
-): string {
-  const blocks = locateInterviewStateBlocks(text);
-  return [...blocks]
-    .sort((left, right) => right.start - left.start)
-    .reduce(
-      (result, block) =>
-        result.slice(0, block.start) + replace(block) + result.slice(block.end),
-      text,
-    );
-}
-
-export function hasInterviewStateBlock(text: string): boolean {
-  const lower = text.toLowerCase();
-  return lower.includes(OPEN_TAG) && lower.includes(CLOSE_TAG);
-}
-
-/**
- * Every block whose body parses. A preface that merely mentions the opening
- * tag is skipped, so the mention does not swallow the real block that follows.
- */
-export function locateInterviewStateBlocks(
-  text: string,
-): InterviewStateBlock[] {
-  const lower = text.toLowerCase();
-  const blocks: InterviewStateBlock[] = [];
-  let cursor = 0;
-  while (cursor < lower.length) {
-    const start = lower.indexOf(OPEN_TAG, cursor);
-    if (start < 0) {
-      break;
-    }
-    const contentStart = start + OPEN_TAG.length;
-    let closeSearch = contentStart;
-    let matched = false;
-    while (closeSearch < lower.length) {
-      const close = lower.indexOf(CLOSE_TAG, closeSearch);
-      if (close < 0) {
-        break;
-      }
-      const json = text.slice(contentStart, close).trim();
-      if (parseInterviewStateJson(json)) {
-        blocks.push({
-          start,
-          end: close + CLOSE_TAG.length,
-          json,
-        });
-        cursor = close + CLOSE_TAG.length;
-        matched = true;
-        break;
-      }
-      closeSearch = close + 1;
-    }
-    if (!matched) {
-      cursor = contentStart;
-    }
-  }
-  return blocks;
-}
+const INTERVIEW_BLOCK_REGEX =
+  /<interview_state>\s*([\s\S]*?)\s*<\/interview_state>/i;
 
 function normalizeQuestion(
   value: unknown,
@@ -114,57 +46,6 @@ function normalizeQuestion(
   };
 }
 
-export function parseInterviewStateJson(
-  json: string,
-): Record<string, unknown> | null {
-  let rawJson = json.trim();
-  try {
-    JSON.parse(rawJson);
-  } catch {
-    rawJson = repairJsonNewlines(rawJson);
-  }
-  try {
-    const raw = JSON.parse(rawJson);
-    const parsed = RawInterviewStateSchema.parse(raw);
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-function repairJsonNewlines(json: string): string {
-  let result = '';
-  let inString = false;
-  let escaped = false;
-  for (let i = 0; i < json.length; i++) {
-    const char = json[i];
-    if (inString) {
-      if (escaped) {
-        result += char;
-        escaped = false;
-      } else if (char === '\\') {
-        result += char;
-        escaped = true;
-      } else if (char === '"') {
-        result += char;
-        inString = false;
-      } else if (char === '\n') {
-        result += '\\n';
-      } else if (char === '\r') {
-        result += '\\r';
-      } else {
-        result += char;
-      }
-    } else {
-      if (char === '"') {
-        inString = true;
-      }
-      result += char;
-    }
-  }
-  return result;
-}
-
 export function flattenMessage(message: InterviewMessage): string {
   return (message.parts ?? [])
     .map((part) => part.text ?? '')
@@ -188,32 +69,6 @@ export function buildFallbackState(
   };
 }
 
-/**
- * Normalize a raw parsed state object into the canonical assistant state.
- * Shared by the text parser and the `interview_submit_state` tool path so
- * both produce identical state for equivalent input.
- */
-export function normalizeAssistantState(
-  parsed: Record<string, unknown>,
-  maxQuestions = 2,
-): InterviewAssistantState {
-  const summary =
-    typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
-  const patch = typeof parsed.patch === 'string' ? parsed.patch : undefined;
-  const title =
-    typeof parsed.title === 'string' && parsed.title.trim().length > 0
-      ? parsed.title.trim()
-      : undefined;
-  const questions = Array.isArray(parsed.questions)
-    ? parsed.questions
-        .map((value, index) => normalizeQuestion(value, index))
-        .filter((value): value is InterviewQuestion => value !== null)
-        .slice(0, maxQuestions)
-    : [];
-
-  return { summary, patch, title, questions };
-}
-
 export function parseAssistantState(
   text: string,
   maxQuestions = 2,
@@ -221,21 +76,38 @@ export function parseAssistantState(
   state: InterviewAssistantState | null;
   error?: string;
 } {
-  const blocks = locateInterviewStateBlocks(text);
-  const parsed = parseInterviewStateJson(blocks[blocks.length - 1]?.json ?? '');
-  if (!parsed) {
-    const lower = text.toLowerCase();
-    if (lower.includes(OPEN_TAG) && lower.includes(CLOSE_TAG)) {
-      return {
-        state: null,
-        error: 'Failed to parse interview state',
-      };
-    }
+  const match = text.match(INTERVIEW_BLOCK_REGEX);
+  if (!match) {
     return { state: null };
   }
 
   try {
-    return { state: normalizeAssistantState(parsed, maxQuestions) };
+    const raw = JSON.parse(match[1]);
+    // Validate raw LLM output with Zod before processing
+    const parsed = RawInterviewStateSchema.parse(raw) as Record<
+      string,
+      unknown
+    >;
+    const summary =
+      typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+    const title =
+      typeof parsed.title === 'string' && parsed.title.trim().length > 0
+        ? parsed.title.trim()
+        : undefined;
+    const questions = Array.isArray(parsed.questions)
+      ? parsed.questions
+          .map((value, index) => normalizeQuestion(value, index))
+          .filter((value): value is InterviewQuestion => value !== null)
+          .slice(0, maxQuestions)
+      : [];
+
+    return {
+      state: {
+        summary,
+        title,
+        questions,
+      },
+    };
   } catch (error) {
     return {
       state: null,

@@ -10,16 +10,11 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
-import type { PluginInput } from '@opencode-ai/plugin';
-import { loadPluginConfig } from '../config/loader';
-import { InterviewOutputFolderSchema } from '../config/schema';
 import { log } from '../utils';
 import {
-  DEFAULT_OUTPUT_FOLDER,
   extractSummarySection,
   extractTitle,
   parseFrontmatter,
-  parseSpecBlocks,
   slugify,
 } from './document';
 import {
@@ -79,11 +74,11 @@ export async function readDashboardAuthFile(
       pid: number;
       startedAt: number;
     };
-    // Check if the PID is still alive - stale file from crashed dashboard
+    // Check if the PID is still alive — stale file from crashed dashboard
     try {
       process.kill(data.pid, 0); // signal 0 = existence check, no actual signal
     } catch {
-      // PID doesn't exist - stale auth file from crashed dashboard
+      // PID doesn't exist — stale auth file from crashed dashboard
       try {
         fsSync.unlinkSync(getAuthFilePath(port));
       } catch {
@@ -142,16 +137,8 @@ function hasLiveForSlug(
 interface RegisteredSession {
   sessionID: string;
   directory: string;
-  outputFolder?: string;
   pid: number;
   registeredAt: number;
-}
-
-type PendingKind = 'answers' | 'nudge' | 'block-comment' | 'chat';
-
-interface PendingClaim {
-  claimId: string;
-  kind: PendingKind;
 }
 
 // ─── Config ───────────────────────────────────────────────────────────
@@ -161,10 +148,14 @@ export const DEFAULT_DASHBOARD_PORT = 43211;
 export interface DashboardConfig {
   port: number;
   outputFolder: string;
-  hostFlavor?: string;
-  sessionClient?: Pick<PluginInput['client']['session'], 'list'>;
-  /** Already-listening server to adopt instead of binding `port`. */
-  server?: Server;
+  sessionClient?: {
+    list: (params?: Record<string, unknown>) => Promise<{
+      data?: Array<{
+        directory?: string;
+        time?: { updated?: number };
+      }>;
+    }>;
+  };
 }
 
 // ─── Dashboard Server ─────────────────────────────────────────────────
@@ -184,42 +175,12 @@ export function createDashboardServer(config: DashboardConfig): {
     questionId: string;
     answer: string;
   }> | null;
-  claimPendingAnswers: (interviewId: string) => {
-    claimId: string;
-    answers: Array<{ questionId: string; answer: string }>;
-  } | null;
-  claimNudgeAction: (interviewId: string) => {
-    claimId: string;
-    action: 'more-questions' | 'confirm-complete';
-  } | null;
-  claimBlockComment: (interviewId: string) => {
-    claimId: string;
-    comment: { section: string; comment: string };
-  } | null;
-  claimChatMessage: (interviewId: string) => {
-    claimId: string;
-    message: string;
-  } | null;
-  acknowledgePending: (
-    interviewId: string,
-    kind: PendingKind,
-    claimId: string,
-  ) => boolean;
-  rollbackPending: (
-    interviewId: string,
-    kind: PendingKind,
-    claimId: string,
-  ) => boolean;
   consumePendingAnswers: (
     interviewId: string,
   ) => Array<{ questionId: string; answer: string }> | null;
   consumeNudgeAction: (
     interviewId: string,
   ) => 'more-questions' | 'confirm-complete' | null;
-  consumeBlockComment: (
-    interviewId: string,
-  ) => { section: string; comment: string } | null;
-  consumeChatMessage: (interviewId: string) => string | null;
   authToken: string;
   discoverSessionDirectories: () => Promise<void>;
   addManualFolder: (dir: string) => void;
@@ -231,137 +192,13 @@ export function createDashboardServer(config: DashboardConfig): {
 } {
   const authToken = crypto.randomBytes(32).toString('hex');
   let activeServer: Server | null = null;
-  let pendingServer: Server | null = null;
   let baseUrl: string | null = null;
-  let startPromise: Promise<string> | null = null;
-  let closed = false;
 
   // Session registry
   const sessions = new Map<string, RegisteredSession>();
 
   // Interview state cache
   const stateCache = new Map<string, InterviewStateEntry>();
-  const pendingClaims = new Map<string, PendingClaim>();
-  let claimCounter = 0;
-
-  function claimKey(interviewId: string, kind: PendingKind): string {
-    return `${interviewId}:${kind}`;
-  }
-
-  function getOrCreateClaim(
-    interviewId: string,
-    kind: PendingKind,
-  ): PendingClaim {
-    const key = claimKey(interviewId, kind);
-    const existing = pendingClaims.get(key);
-    if (existing) {
-      return existing;
-    }
-
-    const claim = { claimId: `delivery-${++claimCounter}`, kind };
-    pendingClaims.set(key, claim);
-    return claim;
-  }
-
-  function acknowledgePending(
-    interviewId: string,
-    kind: PendingKind,
-    claimId: string,
-  ): boolean {
-    const key = claimKey(interviewId, kind);
-    const claim = pendingClaims.get(key);
-    if (!claim || claim.claimId !== claimId) return false;
-    const entry = stateCache.get(interviewId);
-    if (!entry) return false;
-    pendingClaims.delete(key);
-    if (kind === 'answers') entry.pendingAnswers = null;
-    if (kind === 'nudge') entry.nudgeAction = null;
-    if (kind === 'block-comment') entry.pendingBlockComment = null;
-    if (kind === 'chat') entry.pendingChatMessage = null;
-    entry.lastUpdatedAt = Date.now();
-    return true;
-  }
-
-  function rollbackPending(
-    interviewId: string,
-    kind: PendingKind,
-    claimId: string,
-  ): boolean {
-    const key = claimKey(interviewId, kind);
-    const claim = pendingClaims.get(key);
-    if (!claim || claim.claimId !== claimId) return false;
-    pendingClaims.delete(key);
-    return true;
-  }
-
-  // SSE client registry: interviewId → Set<ServerResponse>
-  const sseClients = new Map<string, Set<import('node:http').ServerResponse>>();
-  const sseHeartbeats = new Map<
-    import('node:http').ServerResponse,
-    ReturnType<typeof setInterval>
-  >();
-
-  function removeSseClient(
-    interviewId: string,
-    response: ServerResponse,
-  ): void {
-    const heartbeat = sseHeartbeats.get(response);
-    if (heartbeat) {
-      clearInterval(heartbeat);
-      sseHeartbeats.delete(response);
-    }
-
-    const clients = sseClients.get(interviewId);
-    clients?.delete(response);
-    if (clients && clients.size === 0) sseClients.delete(interviewId);
-  }
-
-  function formatSseState(entry: InterviewStateEntry) {
-    const markdownPath = entry.filePath;
-    const displayPath = markdownPath
-      ? markdownPath.split('/').pop() || markdownPath
-      : 'interview.md';
-    const document = entry.document ?? '';
-
-    return {
-      interview: {
-        id: entry.interviewId,
-        sessionID: entry.sessionID,
-        idea: entry.idea,
-        markdownPath: displayPath,
-        createdAt: new Date(entry.lastUpdatedAt).toISOString(),
-        status:
-          entry.mode === 'session-disconnected'
-            ? ('abandoned' as const)
-            : ('active' as const),
-        baseMessageCount: 0,
-      },
-      url: `${baseUrl}/interview/${entry.interviewId}`,
-      markdownPath,
-      mode: entry.mode,
-      isBusy: entry.mode === 'awaiting-agent',
-      summary: entry.summary,
-      questions: entry.questions,
-      document,
-      lastUpdatedAt: entry.lastUpdatedAt,
-      nudgeAction: entry.nudgeAction,
-      blocks: entry.blocks ?? parseSpecBlocks(document),
-    };
-  }
-
-  function broadcastSse(interviewId: string, entry: InterviewStateEntry) {
-    const clients = sseClients.get(interviewId);
-    if (!clients || clients.size === 0) return;
-    const payload = `event: state\ndata: ${JSON.stringify(formatSseState(entry))}\n\n`;
-    for (const res of clients) {
-      try {
-        res.write(payload);
-      } catch {
-        removeSseClient(interviewId, res);
-      }
-    }
-    if (clients.size === 0) sseClients.delete(interviewId);
-  }
 
   // Periodic cleanup: remove terminal entries older than 24h
   const TERMINAL_MODES = new Set([
@@ -371,20 +208,15 @@ export function createDashboardServer(config: DashboardConfig): {
   ]);
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
-  function createCleanupTimer(): ReturnType<typeof setInterval> {
-    const timer = setInterval(() => {
-      const cutoff = Date.now() - CACHE_TTL_MS;
-      for (const [id, entry] of stateCache) {
-        if (TERMINAL_MODES.has(entry.mode) && entry.lastUpdatedAt < cutoff) {
-          stateCache.delete(id);
-        }
+  const cleanupTimer = setInterval(() => {
+    const cutoff = Date.now() - CACHE_TTL_MS;
+    for (const [id, entry] of stateCache) {
+      if (TERMINAL_MODES.has(entry.mode) && entry.lastUpdatedAt < cutoff) {
+        stateCache.delete(id);
       }
-    }, CLEANUP_INTERVAL_MS);
-    timer.unref();
-    return timer;
-  }
-
-  let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+    }
+  }, CLEANUP_INTERVAL_MS);
+  cleanupTimer.unref();
 
   // File scan cache (TTL 10s)
   let fileCache: { items: InterviewFileItem[]; at: number } | null = null;
@@ -425,7 +257,7 @@ export function createDashboardServer(config: DashboardConfig): {
 
   function getKnownDirectories(): Set<string> {
     const dirs = new Set<string>();
-    // Always scan home directory - interviews may have been created from a
+    // Always scan home directory — interviews may have been created from a
     // session that ran with cwd=$HOME and never registered with the dashboard.
     dirs.add(os.homedir());
     for (const session of sessions.values()) {
@@ -440,23 +272,10 @@ export function createDashboardServer(config: DashboardConfig): {
     return dirs;
   }
 
-  function outputFolderFor(dir: string): string {
-    const registered = [...sessions.values()]
-      .filter((session) => session.directory === dir && session.outputFolder)
-      .sort((a, b) => b.registeredAt - a.registeredAt)[0];
-    if (registered?.outputFolder) return registered.outputFolder;
-    return (
-      loadPluginConfig(dir, {
-        silent: true,
-        hostFlavor: config.hostFlavor,
-      }).interview?.outputFolder ?? DEFAULT_OUTPUT_FOLDER
-    );
-  }
-
   async function discoverSessionDirectories(): Promise<void> {
     if (!config.sessionClient) return;
     try {
-      const result = await config.sessionClient.list({ query: {} });
+      const result = await config.sessionClient.list({ limit: 500 });
       const sessionList = result.data;
       if (!sessionList) return;
 
@@ -473,7 +292,7 @@ export function createDashboardServer(config: DashboardConfig): {
         discoveredFolders.add(session.directory);
       }
     } catch {
-      // Session list not available - rely on registered sessions
+      // Session list not available — rely on registered sessions
     }
   }
 
@@ -488,7 +307,7 @@ export function createDashboardServer(config: DashboardConfig): {
     const items: InterviewFileItem[] = [];
 
     for (const dir of directories) {
-      const interviewDir = path.join(dir, outputFolderFor(dir));
+      const interviewDir = path.join(dir, config.outputFolder);
       let entries: string[];
       try {
         entries = await fs.readdir(interviewDir);
@@ -536,7 +355,7 @@ export function createDashboardServer(config: DashboardConfig): {
     let rebuilt = 0;
 
     for (const dir of directories) {
-      const interviewDir = path.join(dir, outputFolderFor(dir));
+      const interviewDir = path.join(dir, config.outputFolder);
       let entries: string[];
       try {
         entries = await fs.readdir(interviewDir);
@@ -587,8 +406,6 @@ export function createDashboardServer(config: DashboardConfig): {
             : Date.now(),
           filePath: path.join(interviewDir, entry),
           nudgeAction: null,
-          pendingBlockComment: null,
-          pendingChatMessage: null,
         });
 
         // Also register the session directory
@@ -625,7 +442,7 @@ export function createDashboardServer(config: DashboardConfig): {
     );
     const pathname = decodeURIComponent(url.pathname);
 
-    // NOTE: No CORS headers. Same-origin only - dashboard pages and
+    // NOTE: No CORS headers. Same-origin only — dashboard pages and
     // API share the same origin (127.0.0.1:port). Cross-origin POST is
     // blocked by browser preflight since we don't send Access-Control
     // headers. Do NOT add them without also adding CSRF protection.
@@ -794,11 +611,10 @@ export function createDashboardServer(config: DashboardConfig): {
         return;
       }
 
-      const { sessionID, directory, outputFolder, pid } = body as {
+      const { sessionID, directory, pid } = body as {
         sessionID?: string;
         directory?: string;
         pid?: number;
-        outputFolder?: unknown;
       };
       if (!sessionID || !directory || !isValidId(sessionID)) {
         sendJson(response, 400, {
@@ -810,35 +626,11 @@ export function createDashboardServer(config: DashboardConfig): {
       sessions.set(sessionID, {
         sessionID,
         directory,
-        outputFolder: InterviewOutputFolderSchema.safeParse(outputFolder).data,
         pid: pid ?? 0,
         registeredAt: Date.now(),
       });
       fileCache = null; // invalidate
       sendJson(response, 200, { status: 'registered' });
-      return;
-    }
-
-    // ── API: unregister session ────────────────────────────────────
-    if (request.method === 'POST' && pathname === '/api/unregister') {
-      let body: unknown;
-      try {
-        body = await readJsonBody(request);
-      } catch {
-        sendJson(response, 400, { error: 'Invalid JSON' });
-        return;
-      }
-      const { sessionID } = body as { sessionID?: string };
-      if (!sessionID || !isValidId(sessionID)) {
-        sendJson(response, 400, { error: 'sessionID required' });
-        return;
-      }
-      sessions.delete(sessionID);
-      for (const [id, entry] of stateCache) {
-        if (entry.sessionID === sessionID) stateCache.delete(id);
-      }
-      fileCache = null;
-      sendJson(response, 200, { status: 'unregistered' });
       return;
     }
 
@@ -876,8 +668,6 @@ export function createDashboardServer(config: DashboardConfig): {
         lastUpdatedAt: Date.now(),
         filePath: '',
         nudgeAction: null,
-        pendingBlockComment: null,
-        pendingChatMessage: null,
       });
       dedupRecovered(interviewId, stateCache);
       fileCache = null;
@@ -886,62 +676,6 @@ export function createDashboardServer(config: DashboardConfig): {
       sendJson(response, 200, {
         interviewId,
         url: interviewUrl,
-      });
-      return;
-    }
-
-    // ── API: SSE stream (browser → dashboard, real-time push) ────────
-    if (
-      request.method === 'GET' &&
-      pathname.startsWith('/api/interviews/') &&
-      pathname.endsWith('/events')
-    ) {
-      const interviewId = pathname
-        .replace('/api/interviews/', '')
-        .replace('/events', '');
-      if (!interviewId || !isValidId(interviewId)) {
-        sendJson(response, 400, { error: 'Invalid interview ID' });
-        return;
-      }
-      const entry = stateCache.get(interviewId);
-      if (!entry) {
-        sendJson(response, 404, { error: 'Interview not found' });
-        return;
-      }
-
-      response.writeHead(200, {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-cache',
-        connection: 'keep-alive',
-        'access-control-allow-origin': '*',
-      });
-
-      // Register this client
-      let clients = sseClients.get(interviewId);
-      if (!clients) {
-        clients = new Set();
-        sseClients.set(interviewId, clients);
-      }
-      clients.add(response);
-
-      // Send initial state immediately
-      response.write(
-        `event: state\ndata: ${JSON.stringify(formatSseState(entry))}\n\n`,
-      );
-
-      // Heartbeat every 15s to keep connection alive
-      const heartbeat = setInterval(() => {
-        try {
-          response.write(': hb\n\n');
-        } catch {
-          // will be cleaned up on close
-        }
-      }, 15000);
-      sseHeartbeats.set(response, heartbeat);
-
-      // Cleanup on disconnect
-      request.on('close', () => {
-        removeSseClient(interviewId, response);
       });
       return;
     }
@@ -977,14 +711,11 @@ export function createDashboardServer(config: DashboardConfig): {
         if (state.title) existing.title = state.title;
         if (state.questions) existing.questions = state.questions;
         if (state.filePath) existing.filePath = state.filePath;
-        if (state.document !== undefined) existing.document = state.document;
-        if (state.blocks !== undefined) existing.blocks = state.blocks;
         existing.lastUpdatedAt = Date.now();
         dedupRecovered(interviewId, stateCache);
-        broadcastSse(interviewId, existing);
       } else {
         // New entry
-        const entry: InterviewStateEntry = {
+        stateCache.set(interviewId, {
           interviewId,
           sessionID: state.sessionID ?? '',
           idea: state.idea ?? '',
@@ -996,13 +727,7 @@ export function createDashboardServer(config: DashboardConfig): {
           lastUpdatedAt: Date.now(),
           filePath: state.filePath ?? '',
           nudgeAction: null,
-          pendingBlockComment: state.pendingBlockComment ?? null,
-          pendingChatMessage: state.pendingChatMessage ?? null,
-          document: state.document,
-          blocks: state.blocks,
-        };
-        stateCache.set(interviewId, entry);
-        broadcastSse(interviewId, entry);
+        });
       }
 
       sendJson(response, 200, { status: 'ok' });
@@ -1046,7 +771,7 @@ export function createDashboardServer(config: DashboardConfig): {
         const dirs = getKnownDirectories();
         for (const dir of dirs) {
           const slug = extractResumeSlug(interviewId);
-          const candidate = path.join(dir, outputFolderFor(dir), `${slug}.md`);
+          const candidate = path.join(dir, config.outputFolder, `${slug}.md`);
           try {
             document = await fs.readFile(candidate, 'utf8');
             markdownPath = candidate;
@@ -1085,48 +810,6 @@ export function createDashboardServer(config: DashboardConfig): {
         document,
         lastUpdatedAt: entry.lastUpdatedAt,
         nudgeAction: entry.nudgeAction,
-        blocks: parseSpecBlocks(document),
-      });
-      return;
-    }
-
-    // ── API: acknowledge or roll back a claimed delivery ────────────
-    const deliveryMatch = pathname.match(
-      /^\/api\/interviews\/([^/]+)\/(pending|nudge|block-comment|chat)\/(ack|rollback)$/,
-    );
-    if (request.method === 'POST' && deliveryMatch) {
-      const interviewId = deliveryMatch[1];
-      const kind =
-        deliveryMatch[2] === 'pending'
-          ? 'answers'
-          : (deliveryMatch[2] as PendingKind);
-      const operation = deliveryMatch[3];
-      if (!isValidId(interviewId)) {
-        sendJson(response, 400, { error: 'Invalid interview ID' });
-        return;
-      }
-      let body: unknown;
-      try {
-        body = await readJsonBody(request);
-      } catch {
-        sendJson(response, 400, { error: 'Invalid JSON' });
-        return;
-      }
-      const claimId = (body as { claimId?: unknown }).claimId;
-      if (typeof claimId !== 'string' || !claimId) {
-        sendJson(response, 400, { error: 'claimId required' });
-        return;
-      }
-      const accepted =
-        operation === 'ack'
-          ? acknowledgePending(interviewId, kind, claimId)
-          : rollbackPending(interviewId, kind, claimId);
-      if (!accepted) {
-        sendJson(response, 409, { error: 'Unknown or stale delivery claim' });
-        return;
-      }
-      sendJson(response, 200, {
-        status: operation === 'ack' ? 'acked' : 'rolled-back',
       });
       return;
     }
@@ -1163,7 +846,6 @@ export function createDashboardServer(config: DashboardConfig): {
       };
       if (
         !Array.isArray(answers) ||
-        answers.length === 0 ||
         !answers.every(
           (a) =>
             typeof a === 'object' &&
@@ -1179,191 +861,10 @@ export function createDashboardServer(config: DashboardConfig): {
         return;
       }
 
-      if (
-        entry.pendingAnswers ||
-        pendingClaims.has(claimKey(interviewId, 'answers'))
-      ) {
-        sendJson(response, 409, { error: 'Answers are already queued.' });
-        return;
-      }
       entry.pendingAnswers = answers;
       entry.mode = 'awaiting-agent';
       entry.lastUpdatedAt = Date.now();
-      sendJson(response, 202, { status: 'queued' });
-      return;
-    }
-
-    // ── API: submit block comment (browser → dashboard) ────────────
-    if (
-      request.method === 'POST' &&
-      pathname.startsWith('/api/interviews/') &&
-      pathname.endsWith('/block-comment')
-    ) {
-      if (!isAuthenticated(request)) {
-        sendJson(response, 401, { error: 'Unauthorized' });
-        return;
-      }
-      const interviewId = pathname
-        .replace('/api/interviews/', '')
-        .replace('/block-comment', '');
-      if (!isValidId(interviewId)) {
-        sendJson(response, 400, { error: 'Invalid interview ID' });
-        return;
-      }
-      const entry = stateCache.get(interviewId);
-      if (!entry) {
-        sendJson(response, 404, { error: 'Interview not found' });
-        return;
-      }
-
-      let body: unknown;
-      try {
-        body = await readJsonBody(request);
-      } catch {
-        sendJson(response, 400, { error: 'Invalid JSON' });
-        return;
-      }
-
-      const { section, comment } = body as {
-        section?: string;
-        comment?: string;
-      };
-      if (typeof section !== 'string' || typeof comment !== 'string') {
-        sendJson(response, 400, {
-          error: 'section and comment must be strings',
-        });
-        return;
-      }
-
-      if (
-        entry.pendingBlockComment ||
-        pendingClaims.has(claimKey(interviewId, 'block-comment'))
-      ) {
-        sendJson(response, 409, { error: 'Block feedback is already queued.' });
-        return;
-      }
-      entry.pendingBlockComment = { section, comment };
-      entry.mode = 'awaiting-agent';
-      entry.lastUpdatedAt = Date.now();
-      sendJson(response, 202, { status: 'queued' });
-      return;
-    }
-
-    // ── API: get pending block comment (session polls, auth required) ─
-    if (
-      request.method === 'GET' &&
-      pathname.startsWith('/api/interviews/') &&
-      pathname.endsWith('/block-comment')
-    ) {
-      if (!isAuthenticated(request)) {
-        sendJson(response, 401, { error: 'Unauthorized' });
-        return;
-      }
-      const interviewId = pathname
-        .replace('/api/interviews/', '')
-        .replace('/block-comment', '');
-      if (!isValidId(interviewId)) {
-        sendJson(response, 400, { error: 'Invalid interview ID' });
-        return;
-      }
-      const entry = stateCache.get(interviewId);
-      if (!entry) {
-        sendJson(response, 404, { error: 'Interview not found' });
-        return;
-      }
-      const val = entry.pendingBlockComment
-        ? {
-            claimId: getOrCreateClaim(interviewId, 'block-comment').claimId,
-            section: entry.pendingBlockComment.section,
-            comment: entry.pendingBlockComment.comment,
-          }
-        : null;
-      sendJson(response, 200, val ?? {});
-      return;
-    }
-
-    // ── API: submit chat message (browser → dashboard) ──────────────
-    if (
-      request.method === 'POST' &&
-      pathname.startsWith('/api/interviews/') &&
-      pathname.endsWith('/chat')
-    ) {
-      if (!isAuthenticated(request)) {
-        sendJson(response, 401, { error: 'Unauthorized' });
-        return;
-      }
-      const interviewId = pathname
-        .replace('/api/interviews/', '')
-        .replace('/chat', '');
-      if (!isValidId(interviewId)) {
-        sendJson(response, 400, { error: 'Invalid interview ID' });
-        return;
-      }
-      const entry = stateCache.get(interviewId);
-      if (!entry) {
-        sendJson(response, 404, { error: 'Interview not found' });
-        return;
-      }
-
-      let body: unknown;
-      try {
-        body = await readJsonBody(request);
-      } catch {
-        sendJson(response, 400, { error: 'Invalid JSON' });
-        return;
-      }
-
-      const { message } = body as { message?: string };
-      if (typeof message !== 'string' || !message.trim()) {
-        sendJson(response, 400, {
-          error: 'message must be a non-empty string',
-        });
-        return;
-      }
-
-      if (
-        entry.pendingChatMessage ||
-        pendingClaims.has(claimKey(interviewId, 'chat'))
-      ) {
-        sendJson(response, 409, { error: 'Chat message is already queued.' });
-        return;
-      }
-      entry.pendingChatMessage = message.trim();
-      entry.mode = 'awaiting-agent';
-      entry.lastUpdatedAt = Date.now();
-      sendJson(response, 202, { status: 'queued' });
-      return;
-    }
-
-    // ── API: get pending chat message (session polls, auth required) ─
-    if (
-      request.method === 'GET' &&
-      pathname.startsWith('/api/interviews/') &&
-      pathname.endsWith('/chat')
-    ) {
-      if (!isAuthenticated(request)) {
-        sendJson(response, 401, { error: 'Unauthorized' });
-        return;
-      }
-      const interviewId = pathname
-        .replace('/api/interviews/', '')
-        .replace('/chat', '');
-      if (!isValidId(interviewId)) {
-        sendJson(response, 400, { error: 'Invalid interview ID' });
-        return;
-      }
-      const entry = stateCache.get(interviewId);
-      if (!entry) {
-        sendJson(response, 404, { error: 'Interview not found' });
-        return;
-      }
-      const val = entry.pendingChatMessage
-        ? {
-            claimId: getOrCreateClaim(interviewId, 'chat').claimId,
-            message: entry.pendingChatMessage,
-          }
-        : null;
-      sendJson(response, 200, val ?? { message: null });
+      sendJson(response, 200, { status: 'ok' });
       return;
     }
 
@@ -1389,15 +890,13 @@ export function createDashboardServer(config: DashboardConfig): {
         sendJson(response, 404, { error: 'Interview not found' });
         return;
       }
-      const claimed = entry.pendingAnswers
-        ? {
-            claimId: getOrCreateClaim(interviewId, 'answers').claimId,
-            answers: entry.pendingAnswers,
-          }
-        : null;
+      // Atomically consume pending answers (like nudge pattern)
+      const answers = entry.pendingAnswers;
+      if (answers) {
+        entry.pendingAnswers = null;
+      }
       sendJson(response, 200, {
-        claimId: claimed?.claimId ?? null,
-        answers: claimed?.answers ?? null,
+        answers,
       });
       return;
     }
@@ -1444,17 +943,10 @@ export function createDashboardServer(config: DashboardConfig): {
         return;
       }
 
-      if (
-        entry.nudgeAction ||
-        pendingClaims.has(claimKey(interviewId, 'nudge'))
-      ) {
-        sendJson(response, 409, { error: 'Nudge action is already queued.' });
-        return;
-      }
       entry.nudgeAction = action;
       entry.mode = 'awaiting-agent';
       entry.lastUpdatedAt = Date.now();
-      sendJson(response, 202, { status: 'queued' });
+      sendJson(response, 200, { status: 'ok' });
       return;
     }
 
@@ -1480,16 +972,11 @@ export function createDashboardServer(config: DashboardConfig): {
         sendJson(response, 404, { error: 'Interview not found' });
         return;
       }
-      const claimed = entry.nudgeAction
-        ? {
-            claimId: getOrCreateClaim(interviewId, 'nudge').claimId,
-            action: entry.nudgeAction,
-          }
-        : null;
-      sendJson(response, 200, {
-        claimId: claimed?.claimId ?? null,
-        action: claimed?.action ?? null,
-      });
+      const action = entry.nudgeAction;
+      if (action) {
+        entry.nudgeAction = null; // Clear after reading
+      }
+      sendJson(response, 200, { action });
       return;
     }
 
@@ -1517,47 +1004,24 @@ export function createDashboardServer(config: DashboardConfig): {
 
   // ─── Server Lifecycle ────────────────────────────────────────────
 
-  function closeServer(server: Server): void {
-    server.closeAllConnections();
-    try {
-      server.close();
-    } catch {
-      // The server may still be in the listen transition.
-    }
-  }
-
   function start(): Promise<string> {
     if (baseUrl) return Promise.resolve(baseUrl);
-    if (closed) return Promise.reject(new Error('Dashboard server is closed.'));
-    if (startPromise) return startPromise;
 
-    if (!cleanupTimer) {
-      cleanupTimer = createCleanupTimer();
-    }
-
-    startPromise = new Promise((resolve, reject) => {
-      const requestHandler = (
-        request: IncomingMessage,
-        response: ServerResponse,
-      ) => {
+    return new Promise((resolve, reject) => {
+      const server = createServer((request, response) => {
         handleRequest(request, response).catch((error: unknown) => {
           sendJson(response, 500, {
             error:
               error instanceof Error ? error.message : 'Internal server error',
           });
         });
-      };
-
-      // Adopt an already-listening server (deterministic port ownership)
-      // or bind a fresh one on config.port.
-      const server = config.server ?? createServer(requestHandler);
+      });
 
       server.requestTimeout = 30_000;
       server.headersTimeout = 10_000;
 
       server.on('error', (error: NodeJS.ErrnoException) => {
-        closeServer(server);
-        pendingServer = null;
+        server.close();
         if (error.code === 'EADDRINUSE') {
           reject(new Error(`Dashboard port ${config.port} is already in use.`));
         } else {
@@ -1565,100 +1029,27 @@ export function createDashboardServer(config: DashboardConfig): {
         }
       });
 
-      if (config.server) {
-        // Adoption path: already listening. Swap the placeholder handler
-        // for the dashboard handler and read the port from the address.
-        const address = server.address();
-        if (!address || typeof address === 'string') {
-          reject(new Error('Failed to start dashboard server'));
-          return;
-        }
-        server.removeAllListeners('request');
-        server.on('request', requestHandler);
-        activeServer = server;
-        baseUrl = `http://127.0.0.1:${address.port}`;
-        if (closed) {
-          activeServer = null;
-          baseUrl = null;
-          closeServer(server);
-          reject(new Error('Dashboard server is closed.'));
-          return;
-        }
-        writeAuthFile(config.port, authToken);
-        resolve(baseUrl);
-        return;
-      }
-
-      pendingServer = server;
       server.listen(config.port, '127.0.0.1', () => {
         const address = server.address();
         if (!address || typeof address === 'string') {
-          pendingServer = null;
           reject(new Error('Failed to start dashboard server'));
           return;
         }
         activeServer = server;
-        pendingServer = null;
         baseUrl = `http://127.0.0.1:${address.port}`;
-        if (closed) {
-          activeServer = null;
-          baseUrl = null;
-          closeServer(server);
-          reject(new Error('Dashboard server is closed.'));
-          return;
-        }
         writeAuthFile(config.port, authToken);
         resolve(baseUrl);
       });
     });
-
-    startPromise.catch(() => {
-      startPromise = null;
-    });
-    return startPromise;
   }
 
   function close(): void {
-    if (closed) return;
-    closed = true;
-
-    if (cleanupTimer) {
-      clearInterval(cleanupTimer);
-      cleanupTimer = null;
-    }
-
-    for (const clients of sseClients.values()) {
-      for (const response of clients) {
-        const heartbeat = sseHeartbeats.get(response);
-        if (heartbeat) {
-          clearInterval(heartbeat);
-          sseHeartbeats.delete(response);
-        }
-        try {
-          if (!response.writableEnded && !response.destroyed) {
-            response.end();
-          }
-        } catch {
-          try {
-            response.destroy();
-          } catch {
-            // Ignore cleanup errors
-          }
-        }
-      }
-    }
-
-    sseClients.clear();
-    pendingClaims.clear();
-
-    removeAuthFile(config.port);
-
-    const server = activeServer ?? pendingServer;
-    activeServer = null;
-    pendingServer = null;
-    baseUrl = null;
-    if (server) {
-      closeServer(server);
+    if (activeServer) {
+      removeAuthFile(config.port);
+      activeServer.closeAllConnections();
+      activeServer.close();
+      activeServer = null;
+      baseUrl = null;
     }
   }
 
@@ -1682,14 +1073,6 @@ export function createDashboardServer(config: DashboardConfig): {
       for (const [id, entry] of stateCache) {
         if (entry.sessionID === sessionID) {
           stateCache.delete(id);
-          for (const kind of [
-            'answers',
-            'nudge',
-            'block-comment',
-            'chat',
-          ] as PendingKind[]) {
-            pendingClaims.delete(claimKey(id, kind));
-          }
         }
       }
       fileCache = null;
@@ -1701,20 +1084,9 @@ export function createDashboardServer(config: DashboardConfig): {
         if (existing.pendingAnswers)
           entry.pendingAnswers ??= existing.pendingAnswers;
         if (existing.nudgeAction) entry.nudgeAction ??= existing.nudgeAction;
-        if (existing.pendingBlockComment)
-          entry.pendingBlockComment ??= existing.pendingBlockComment;
-        if (existing.pendingChatMessage)
-          entry.pendingChatMessage ??= existing.pendingChatMessage;
-        if (entry.document === undefined && existing.document !== undefined) {
-          entry.document = existing.document;
-        }
-        if (entry.blocks === undefined && existing.blocks !== undefined) {
-          entry.blocks = existing.blocks;
-        }
       }
       stateCache.set(entry.interviewId, entry);
       dedupRecovered(entry.interviewId, stateCache);
-      broadcastSse(entry.interviewId, entry);
     },
     getState: (id) => stateCache.get(id),
     storeAnswers: (id, answers) => {
@@ -1726,32 +1098,6 @@ export function createDashboardServer(config: DashboardConfig): {
       }
     },
     getPendingAnswers: (id) => stateCache.get(id)?.pendingAnswers ?? null,
-    claimPendingAnswers: (id) => {
-      const entry = stateCache.get(id);
-      if (!entry?.pendingAnswers) return null;
-      const claim = getOrCreateClaim(id, 'answers');
-      return { claimId: claim.claimId, answers: entry.pendingAnswers };
-    },
-    claimNudgeAction: (id) => {
-      const entry = stateCache.get(id);
-      if (!entry?.nudgeAction) return null;
-      const claim = getOrCreateClaim(id, 'nudge');
-      return { claimId: claim.claimId, action: entry.nudgeAction };
-    },
-    claimBlockComment: (id) => {
-      const entry = stateCache.get(id);
-      if (!entry?.pendingBlockComment) return null;
-      const claim = getOrCreateClaim(id, 'block-comment');
-      return { claimId: claim.claimId, comment: entry.pendingBlockComment };
-    },
-    claimChatMessage: (id) => {
-      const entry = stateCache.get(id);
-      if (!entry?.pendingChatMessage) return null;
-      const claim = getOrCreateClaim(id, 'chat');
-      return { claimId: claim.claimId, message: entry.pendingChatMessage };
-    },
-    acknowledgePending,
-    rollbackPending,
     consumePendingAnswers: (id) => {
       const entry = stateCache.get(id);
       if (!entry?.pendingAnswers) return null;
@@ -1765,20 +1111,6 @@ export function createDashboardServer(config: DashboardConfig): {
       const action = entry.nudgeAction;
       entry.nudgeAction = null;
       return action;
-    },
-    consumeBlockComment: (id: string) => {
-      const entry = stateCache.get(id);
-      if (!entry?.pendingBlockComment) return null;
-      const comment = entry.pendingBlockComment;
-      entry.pendingBlockComment = null;
-      return comment;
-    },
-    consumeChatMessage: (id: string) => {
-      const entry = stateCache.get(id);
-      if (!entry?.pendingChatMessage) return null;
-      const message = entry.pendingChatMessage;
-      entry.pendingChatMessage = null;
-      return message;
     },
     authToken,
     discoverSessionDirectories,
@@ -1846,15 +1178,13 @@ export async function tryBecomeDashboard(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('already in use')) {
-        dashboard.close();
         // Another process won the race, wait with jitter and retry
         if (attempt < maxAttempts - 1) {
           await new Promise((resolve) => setTimeout(resolve, jitterMs()));
           continue;
         }
-        return null; // All retries exhausted - treat as session
+        return null; // All retries exhausted — treat as session
       }
-      dashboard.close();
       throw error;
     }
   }

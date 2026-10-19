@@ -1,13 +1,12 @@
-const TRUTHY_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
+export function getEnv(name: string): string | undefined {
+  const bunValue = (globalThis as { Bun?: { env?: Record<string, string> } })
+    .Bun?.env?.[name];
+  if (typeof bunValue === 'string' && bunValue.length > 0) return bunValue;
 
-export const PLUGIN_DISABLE_ENV = 'OH_MY_OPENCODE_SLIM_DISABLE';
-
-export function isTruthyEnvValue(value: string | undefined): boolean {
-  return TRUTHY_ENV_VALUES.has(value?.trim().toLowerCase() ?? '');
-}
-
-export function isPluginDisabledByEnv(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  return isTruthyEnvValue(env[PLUGIN_DISABLE_ENV]);
+  const processValue = (
+    globalThis as { process?: { env?: Record<string, string | undefined> } }
+  ).process?.env?.[name];
+  return typeof processValue === 'string' && processValue.length > 0
+    ? processValue
+    : undefined;
 }

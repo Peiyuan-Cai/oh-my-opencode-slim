@@ -1,13 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { DEFAULT_AGENT_MCPS, getAgentMcpList, parseList } from './agent-mcps';
-import { RuntimeConfig } from './runtime';
-import type { PluginConfig } from './schema';
-
-const TEST_DIRECTORY = 'runtime-test-agent-mcps';
-function runtimeFor(config: PluginConfig = {}) {
-  RuntimeConfig.reset(TEST_DIRECTORY);
-  return RuntimeConfig.init(TEST_DIRECTORY, config);
-}
+import {
+  buildAgentMcpPermissionRules,
+  DEFAULT_AGENT_MCPS,
+  getManagedMcpNames,
+  parseList,
+} from './agent-mcps';
 
 describe('parseList', () => {
   test('empty list returns empty array', () => {
@@ -25,11 +22,12 @@ describe('parseList', () => {
   test('orchestrator wildcard excludes context7 but includes custom mcps', () => {
     expect(
       parseList(DEFAULT_AGENT_MCPS.orchestrator, [
+        'websearch',
         'context7',
-        'gh_grep',
+        'grep_app',
         'custom-mcp',
       ]),
-    ).toEqual(['gh_grep', 'custom-mcp']);
+    ).toEqual(['websearch', 'grep_app', 'custom-mcp']);
   });
 
   test('wildcard with exclusions', () => {
@@ -58,23 +56,24 @@ describe('parseList', () => {
   test('exclusions without matching allows', () => {
     expect(parseList(['!mcp2'], ['mcp1', 'mcp2', 'mcp3'])).toEqual([]);
   });
-});
 
-describe('getAgentMcpList rename continuity', () => {
-  test("reads mcps from a legacy 'librarian' record for the explorer", () => {
-    const runtime = runtimeFor({
-      agents: { librarian: { mcps: ['legacy-mcp'] } },
+  test('managed permission rules ignore custom mcps', () => {
+    const rules = buildAgentMcpPermissionRules([], {
+      websearch: true,
+      context7: true,
+      grep_app: true,
+      'windows-mcp': true,
     });
-    expect(getAgentMcpList('explorer', runtime)).toEqual(['legacy-mcp']);
+
+    expect(rules).toEqual({
+      'websearch_*': 'deny',
+      'context7_*': 'deny',
+      'grep_app_*': 'deny',
+    });
+    expect('windows-mcp' in rules).toBe(false);
   });
 
-  test("canonical 'explorer' mcps win over the legacy record", () => {
-    const runtime = runtimeFor({
-      agents: {
-        explorer: { mcps: ['canonical-mcp'] },
-        librarian: { mcps: ['legacy-mcp'] },
-      },
-    });
-    expect(getAgentMcpList('explorer', runtime)).toEqual(['canonical-mcp']);
+  test('managed mcp names are built-in only', () => {
+    expect(getManagedMcpNames()).toEqual(['websearch', 'context7', 'grep_app']);
   });
 });

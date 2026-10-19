@@ -1,33 +1,27 @@
 export type BooleanArg = 'yes' | 'no';
-export type BackgroundSubagentsArg = 'ask' | 'yes' | 'no';
-export type CompanionArg = 'ask' | BooleanArg;
 
 export interface InstallArgs {
   tui: boolean;
+  skills?: BooleanArg;
   preset?: string;
   dryRun?: boolean;
   reset?: boolean;
-  backgroundSubagents?: BackgroundSubagentsArg;
-  backgroundSubagentsTarget?: string;
-  companion?: CompanionArg;
 }
 
 export interface OpenCodeConfig {
   plugin?: unknown[];
-  plugins?: unknown[];
   provider?: Record<string, unknown>;
   agent?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
 export interface InstallConfig {
+  hasTmux: boolean;
+  installCustomSkills: boolean;
   preset?: string;
   promptForStar?: boolean;
   dryRun?: boolean;
   reset: boolean;
-  backgroundSubagents: BackgroundSubagentsArg;
-  backgroundSubagentsTarget?: string;
-  companion?: CompanionArg;
 }
 
 export interface ConfigMergeResult {
@@ -46,4 +40,5 @@ export interface DetectedConfig {
   hasAntigravity: boolean;
   hasChutes?: boolean;
   hasOpencodeZen: boolean;
+  hasTmux: boolean;
 }

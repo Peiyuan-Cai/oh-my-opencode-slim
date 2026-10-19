@@ -14,15 +14,13 @@ export interface InterviewAnswer {
 
 export interface InterviewAssistantState {
   summary: string;
-  /** Unified diff of the current spec body. Absent on the kickoff turn. */
-  patch?: string;
   title?: string;
   questions: InterviewQuestion[];
 }
 
 // ─── Zod Schemas (for validating untrusted LLM output) ─────────────
 
-/** Raw question object from LLM output - loose, everything optional. */
+/** Raw question object from LLM output — loose, everything optional. */
 export const RawQuestionSchema = z.object({
   id: z.string().optional(),
   question: z.string().optional(),
@@ -33,7 +31,6 @@ export const RawQuestionSchema = z.object({
 /** Raw interview_state block from LLM output. */
 export const RawInterviewStateSchema = z.object({
   summary: z.unknown().optional(),
-  patch: z.unknown().optional(),
   title: z.unknown().optional(),
   questions: z.array(z.unknown()).optional(),
 });
@@ -46,11 +43,7 @@ export interface InterviewRecord {
   idea: string;
   markdownPath: string;
   createdAt: string;
-  abandonedAt?: string;
-  abandonedOrder?: number;
   status: 'active' | 'abandoned';
-  /** Set when the user finishes. The file on disk is the plan. */
-  completed?: boolean;
   baseMessageCount: number;
 }
 
@@ -83,12 +76,6 @@ export interface InterviewFileItem {
   directory?: string;
 }
 
-export interface SpecBlock {
-  id: string;
-  title: string;
-  content: string;
-}
-
 export interface InterviewState {
   interview: InterviewRecord;
   url: string;
@@ -105,7 +92,6 @@ export interface InterviewState {
   summary: string;
   questions: InterviewQuestion[];
   document: string;
-  blocks: SpecBlock[];
 }
 
 /** Wire format for dashboard state cache entries. */
@@ -135,11 +121,4 @@ export interface InterviewStateEntry {
   lastUpdatedAt: number;
   filePath: string;
   nudgeAction: 'more-questions' | 'confirm-complete' | null;
-  pendingBlockComment?: {
-    section: string;
-    comment: string;
-  } | null;
-  pendingChatMessage?: string | null;
-  document?: string;
-  blocks?: SpecBlock[];
 }

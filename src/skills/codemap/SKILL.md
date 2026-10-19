@@ -37,10 +37,10 @@ If neither file exists: Continue to Step 2 (Initialize).
      - Docs: `docs/**`, `*.md` (except root `README.md` if needed), `LICENSE`
      - Build/Deps: `node_modules/**`, `dist/**`, `build/**`, `*.min.js`
    - Respect `.gitignore` automatically
-3. **Run codemap.mjs init** (`scripts/codemap.mjs` is relative to this skill's base directory — the host prints it as `Base directory for this skill`):
+3. **Run codemap.mjs init**:
 
 ```bash
-node scripts/codemap.mjs init \
+node ~/.config/opencode/skills/codemap/scripts/codemap.mjs init \
   --root ./ \
   --include "src/**/*.ts" \
   --exclude "**/*.test.ts" --exclude "dist/**" --exclude "node_modules/**"
@@ -57,7 +57,7 @@ This creates:
 1. **Run codemap.mjs changes** to see what changed:
 
 ```bash
-node scripts/codemap.mjs changes \
+node ~/.config/opencode/skills/codemap/scripts/codemap.mjs changes \
   --root ./
 ```
 
@@ -71,7 +71,7 @@ node scripts/codemap.mjs changes \
 4. **Run update** to save new state:
 
 ```bash
-node scripts/codemap.mjs update \
+node ~/.config/opencode/skills/codemap/scripts/codemap.mjs update \
   --root ./
 ```
 
@@ -87,7 +87,7 @@ Once all specific directories are mapped, the Orchestrator must create or update
 
 **OpenCode auto-loads `AGENTS.md` into agent context on every session.** To ensure agents automatically discover and use the codemap, update (or create) `AGENTS.md` at the repo root:
 
-1. If `AGENTS.md` already exists and already contains a `## Repository Map` section, **skip this step** - the reference is already set up.
+1. If `AGENTS.md` already exists and already contains a `## Repository Map` section, **skip this step** — the reference is already set up.
 2. If `AGENTS.md` exists but has no `## Repository Map` section, **append** the section below.
 3. If `AGENTS.md` doesn't exist, **create** it with the section below.
 
@@ -104,7 +104,7 @@ Before working on any task, read `codemap.md` to understand:
 For deep work on a specific folder, also read that folder's `codemap.md`.
 ```
 
-This is idempotent - repeated codemap runs will detect the existing section and skip. No duplication.
+This is idempotent — repeated codemap runs will detect the existing section and skip. No duplication.
 
 ## Codemap Content
 
@@ -115,22 +115,49 @@ Fixers are responsible for writing `codemap.md` files during this workflow. Use 
 - **Data & Control Flow** - Explicitly trace how data enters and leaves the module. Mention specific function call sequences and state transitions.
 - **Integration Points** - List dependencies and consumer modules. Use technical names for hooks, events, or API endpoints.
 
-Example skeleton:
+Example codemap:
 
 ```markdown
-# src/<dir>/
+# src/agents/
+
 ## Responsibility
-<role of this directory>
+Defines agent personalities and manages their configuration lifecycle.
+
 ## Design
-<patterns and abstractions>
+Each agent is a prompt + permission set. Config system uses:
+- Default prompts (orchestrator.ts, explorer.ts, etc.)
+- User overrides from ~/.config/opencode/oh-my-opencode-slim.json
+- Permission wildcards for skill/MCP access control
+
 ## Flow
-<data in → key calls → data out>
+1. Plugin loads → calls getAgentConfigs()
+2. Reads user config preset
+3. Merges defaults with overrides
+4. Applies permission rules (wildcard expansion)
+5. Returns agent configs to OpenCode
+
 ## Integration
-<consumers / dependencies>
+- Consumed by: Main plugin (src/index.ts)
+- Depends on: Config loader, skills registry
 ```
 
-For root atlas, aggregate the same headings plus a Directory Map table:
+Example **Root Codemap (Atlas)**:
 
-| Directory | Responsibility | Link |
-|-----------|----------------|------|
-| `src/<dir>/` | <one-line summary> | [View Map](src/<dir>/codemap.md) |
+```markdown
+# Repository Atlas: oh-my-opencode-slim
+
+## Project Responsibility
+A high-performance, low-latency agent orchestration plugin for OpenCode, focusing on specialized sub-agent delegation and multiplexer-assisted child sessions.
+
+## System Entry Points
+- `src/index.ts`: Plugin initialization and OpenCode integration.
+- `package.json`: Dependency manifest and build scripts.
+- `oh-my-opencode-slim.json`: User configuration schema.
+
+## Directory Map (Aggregated)
+| Directory | Responsibility Summary | Detailed Map |
+|-----------|------------------------|--------------|
+| `src/agents/` | Defines agent personalities (Orchestrator, Explorer) and manages model routing. | [View Map](src/agents/codemap.md) |
+| `src/features/` | Core logic for tmux integration and session state. | [View Map](src/features/codemap.md) |
+| `src/config/` | Implements the configuration loading pipeline and environment variable injection. | [View Map](src/config/codemap.md) |
+```

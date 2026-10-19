@@ -5,7 +5,7 @@ import {
   JSON_ERROR_PATTERNS,
   JSON_ERROR_REMINDER,
   JSON_ERROR_TOOL_EXCLUDE_LIST,
-} from './hook';
+} from './index';
 
 describe('json-error-recovery hook', () => {
   let hook: ReturnType<typeof createJsonErrorRecoveryHook>;

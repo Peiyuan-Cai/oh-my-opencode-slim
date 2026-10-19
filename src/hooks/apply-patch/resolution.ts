@@ -1,15 +1,23 @@
-import { normalizeLineEndings } from './codec';
+import * as fs from 'node:fs/promises';
+
 import {
-  commonEdges,
-  matchesAt,
-  prepareAutoRescueTarget,
+  autoRescueComparators,
+  list,
+  prefix,
   rescueByLcs,
   rescueByPrefixSuffix,
-  sameRescueLine,
   seek,
   seekMatch,
+  suffix,
 } from './matching';
-import type { MatchHit, PatchChunk, ResolvedChunk } from './types';
+import type {
+  ApplyPatchRescueStrategy,
+  ApplyPatchRuntimeOptions,
+  MatchComparatorName,
+  MatchHit,
+  PatchChunk,
+  ResolvedChunk,
+} from './types';
 
 type FileLines = {
   lines: string[];
@@ -17,17 +25,32 @@ type FileLines = {
   hasFinalNewline: boolean;
 };
 
-export function splitFileLines(text: string): FileLines {
+function splitFileLines(text: string): FileLines {
   const eol = text.match(/\r\n|\n|\r/)?.[0] === '\r\n' ? '\r\n' : '\n';
-  const normalized = normalizeLineEndings(text);
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const hasFinalNewline = normalized.endsWith('\n');
-  // Empty text is zero lines, not one empty line; '\n' is one empty line.
-  const lines = normalized.length === 0 ? [] : normalized.split('\n');
-  if (lines.length > 0 && hasFinalNewline) {
+  const lines = normalized.split('\n');
+  if (hasFinalNewline) {
     lines.pop();
   }
 
   return { lines, eol, hasFinalNewline };
+}
+
+async function readFileLinesWithEol(file: string): Promise<FileLines> {
+  let text: string;
+
+  try {
+    text = await fs.readFile(file, 'utf-8');
+  } catch (error) {
+    throw new Error(`Failed to read file ${file}: ${error}`);
+  }
+
+  return splitFileLines(text);
+}
+
+export async function readFileLines(file: string): Promise<string[]> {
+  return (await readFileLinesWithEol(file)).lines;
 }
 
 export function resolveChunkStart(
@@ -35,7 +58,9 @@ export function resolveChunkStart(
   chunk: PatchChunk,
   start: number,
 ): number {
-  if (!chunk.change_context) return start;
+  if (!chunk.change_context) {
+    return start;
+  }
 
   const at = seek(lines, [chunk.change_context], start);
   return at === -1 ? start : at + 1;
@@ -46,55 +71,41 @@ function resolveUniqueAnchor(
   changeContext: string,
   start: number,
 ):
+  | { kind: 'missing' }
   | { kind: 'ambiguous' }
   | {
       kind: 'match';
       index: number;
       exact: boolean;
+      comparator: MatchComparatorName;
+      canonicalLine: string;
     } {
-  let matchedIndex: number | undefined;
-  const anchorTarget = prepareAutoRescueTarget(changeContext);
+  const hits = new Set<number>();
 
-  for (let index = start; index < lines.length; index += 1) {
-    if (!matchesAt(lines[index], anchorTarget)) {
-      continue;
+  for (const same of autoRescueComparators) {
+    for (const index of list(lines, [changeContext], start, same)) {
+      hits.add(index);
     }
-
-    if (matchedIndex !== undefined) {
-      return { kind: 'ambiguous' };
-    }
-
-    matchedIndex = index;
   }
 
-  if (matchedIndex === undefined) throw new Error('Missing insertion anchor');
+  if (hits.size === 0) {
+    return { kind: 'missing' };
+  }
+
+  if (hits.size > 1) {
+    return { kind: 'ambiguous' };
+  }
+
+  const index = [...hits][0];
+  const canonicalLine = lines[index];
+  const comparator = seekMatch(lines, [changeContext], index)?.comparator;
 
   return {
     kind: 'match',
-    index: matchedIndex,
-    exact: lines[matchedIndex] === changeContext,
-  };
-}
-
-function buildResolvedChunk(
-  lines: string[],
-  chunk: PatchChunk,
-  hit: MatchHit,
-  rewritten: boolean,
-  canonicalStart = hit.start,
-  canonicalEnd = hit.start + hit.del,
-  canonicalNewLines = chunk.new_lines,
-  canonicalChangeContext?: string,
-): ResolvedChunk {
-  return {
-    hit,
-    canonical_old_lines: lines.slice(canonicalStart, canonicalEnd),
-    canonical_new_lines: [...canonicalNewLines],
-    canonical_change_context: canonicalChangeContext,
-    resolved_is_end_of_file: canonicalEnd === lines.length,
-    rewritten,
-    canonical_start: canonicalStart,
-    canonical_end: canonicalEnd,
+    index,
+    exact: canonicalLine === changeContext,
+    comparator: comparator ?? 'exact',
+    canonicalLine,
   };
 }
 
@@ -103,79 +114,92 @@ export function locateChunk(
   file: string,
   chunk: PatchChunk,
   start: number,
+  cfg: ApplyPatchRuntimeOptions,
 ): ResolvedChunk {
-  let old_lines = chunk.old_lines;
-  let new_lines = chunk.new_lines;
-  let match = seekMatch(lines, old_lines, start, chunk.is_end_of_file ?? false);
-  let retried = false;
-  if (!match && old_lines.at(-1) === '') {
-    old_lines = old_lines.slice(0, -1);
-    if (new_lines.at(-1) === '') new_lines = new_lines.slice(0, -1);
-    match = seekMatch(lines, old_lines, start, chunk.is_end_of_file ?? false);
-    retried = !!match;
-  }
+  const old_lines = chunk.old_lines;
+  const new_lines = chunk.new_lines;
+  const match = seekMatch(
+    lines,
+    old_lines,
+    start,
+    chunk.is_end_of_file ?? false,
+  );
 
   if (match) {
-    return buildResolvedChunk(
-      lines,
-      chunk,
-      { start: match.index, del: old_lines.length, add: [...new_lines] },
-      !match.exact || retried,
+    const canonical_old_lines = lines.slice(
       match.index,
       match.index + old_lines.length,
-      new_lines,
     );
-  }
+    const rewritten = !match.exact;
 
-  const prefixSuffix = rescueByPrefixSuffix(lines, old_lines, new_lines, start);
-
-  if (prefixSuffix.kind === 'ambiguous') {
-    throw new Error(
-      `Prefix/suffix rescue was ambiguous in ${file}:\n${chunk.old_lines.join(
-        '\n',
-      )}`,
-    );
-  }
-
-  if (prefixSuffix.kind === 'match') {
-    const { prefixLength, suffixLength } = commonEdges(
+    return {
+      hit: { start: match.index, del: old_lines.length, add: [...new_lines] },
       old_lines,
-      new_lines,
-      sameRescueLine,
-    );
-    const canonicalStart = prefixSuffix.hit.start - prefixLength;
-    const canonicalEnd =
-      prefixSuffix.hit.start + prefixSuffix.hit.del + suffixLength;
-    const canonicalNewLines = [
-      ...lines.slice(canonicalStart, prefixSuffix.hit.start),
-      ...prefixSuffix.hit.add,
-      ...lines.slice(
-        prefixSuffix.hit.start + prefixSuffix.hit.del,
-        canonicalEnd,
-      ),
-    ];
-
-    return buildResolvedChunk(
-      lines,
-      chunk,
-      prefixSuffix.hit,
-      true,
-      canonicalStart,
-      canonicalEnd,
-      canonicalNewLines,
-    );
+      canonical_old_lines,
+      canonical_new_lines: [...chunk.new_lines],
+      resolved_is_end_of_file:
+        match.index + canonical_old_lines.length === lines.length,
+      rewritten,
+      strategy: undefined,
+      matchComparator: match.comparator,
+    };
   }
 
-  const lcs = rescueByLcs(lines, old_lines, new_lines, start);
+  if (cfg.prefixSuffix) {
+    const rescued = rescueByPrefixSuffix(lines, old_lines, new_lines, start);
 
-  if (lcs.kind === 'ambiguous') {
-    throw new Error(
-      `LCS rescue was ambiguous in ${file}:\n${chunk.old_lines.join('\n')}`,
-    );
+    if (rescued.kind === 'ambiguous') {
+      throw new Error(
+        `Prefix/suffix rescue was ambiguous in ${file}:\n${chunk.old_lines.join(
+          '\n',
+        )}`,
+      );
+    }
+
+    if (rescued.kind === 'match') {
+      const prefixLength = prefix(old_lines, new_lines);
+      const suffixLength = suffix(old_lines, new_lines, prefixLength);
+      const canonicalStart = rescued.hit.start - prefixLength;
+      const canonicalEnd = rescued.hit.start + rescued.hit.del + suffixLength;
+
+      return {
+        hit: rescued.hit,
+        old_lines,
+        canonical_old_lines: lines.slice(canonicalStart, canonicalEnd),
+        canonical_new_lines: [...chunk.new_lines],
+        resolved_is_end_of_file: canonicalEnd === lines.length,
+        rewritten: true,
+        strategy: 'prefix/suffix',
+        matchComparator: 'exact',
+      };
+    }
   }
 
-  if (lcs.kind === 'match') {
-    return buildResolvedChunk(lines, chunk, lcs.hit, true);
+  if (cfg.lcsRescue) {
+    const rescued = rescueByLcs(lines, old_lines, new_lines, start);
+
+    if (rescued.kind === 'ambiguous') {
+      throw new Error(
+        `LCS rescue was ambiguous in ${file}:\n${chunk.old_lines.join('\n')}`,
+      );
+    }
+
+    if (rescued.kind === 'match') {
+      return {
+        hit: rescued.hit,
+        old_lines,
+        canonical_old_lines: lines.slice(
+          rescued.hit.start,
+          rescued.hit.start + rescued.hit.del,
+        ),
+        canonical_new_lines: [...chunk.new_lines],
+        resolved_is_end_of_file:
+          rescued.hit.start + rescued.hit.del === lines.length,
+        rewritten: true,
+        strategy: 'lcs',
+        matchComparator: 'exact',
+      };
+    }
   }
 
   throw new Error(
@@ -203,52 +227,60 @@ export function applyHits(
   return hasFinalNewline ? `${rendered}${eol}` : rendered;
 }
 
-export function resolveUpdate(
+function resolveUpdateChunksFromFileLines(
   file: string,
-  text: string,
+  state: FileLines,
   chunks: PatchChunk[],
+  cfg: ApplyPatchRuntimeOptions,
 ): {
+  lines: string[];
   resolved: ResolvedChunk[];
-  nextText: string;
+  eol: '\n' | '\r\n';
+  hasFinalNewline: boolean;
 } {
-  const { lines, eol, hasFinalNewline } = splitFileLines(text);
+  const lines = [...state.lines];
   const resolved: ResolvedChunk[] = [];
   let start = 0;
 
   for (const chunk of chunks) {
     const chunkStart = resolveChunkStart(lines, chunk, start);
-    const canonicalContext =
-      chunk.change_context && chunkStart > start
-        ? lines[chunkStart - 1]
-        : undefined;
-    const contextRewritten = canonicalContext !== chunk.change_context;
+    let strategy: ApplyPatchRescueStrategy | undefined;
 
     if (chunk.old_lines.length === 0) {
-      const appendAt = lines.at(-1) === '' ? lines.length - 1 : lines.length;
-      if (chunk.is_end_of_file || !chunk.change_context) {
-        const consumesBlank = appendAt < lines.length ? 1 : 0;
-        resolved.push(
-          buildResolvedChunk(
-            lines,
-            chunk,
-            { start: appendAt, del: consumesBlank, add: [...chunk.new_lines] },
-            contextRewritten || consumesBlank !== 0,
-            appendAt,
-            appendAt + consumesBlank,
-            chunk.new_lines,
-            canonicalContext,
-          ),
-        );
-        start = appendAt;
+      if (chunk.is_end_of_file) {
+        resolved.push({
+          hit: {
+            start: lines.length,
+            del: 0,
+            add: [...chunk.new_lines],
+          },
+          old_lines: [],
+          canonical_old_lines: [],
+          canonical_new_lines: [...chunk.new_lines],
+          resolved_is_end_of_file: true,
+          rewritten: false,
+          strategy,
+          matchComparator: 'exact',
+        });
+        start = lines.length;
         continue;
       }
 
-      if (!canonicalContext) {
+      if (!chunk.change_context) {
+        throw new Error(`Missing insertion anchor in ${file}`);
+      }
+
+      const anchorMatch = resolveUniqueAnchor(
+        lines,
+        chunk.change_context,
+        start,
+      );
+      if (anchorMatch.kind === 'missing') {
         throw new Error(
           `Failed to find insertion anchor in ${file}:\n${chunk.change_context}`,
         );
       }
-      const anchorMatch = resolveUniqueAnchor(lines, canonicalContext, start);
+
       if (anchorMatch.kind === 'ambiguous') {
         throw new Error(
           `Insertion anchor was ambiguous in ${file}:\n${chunk.change_context}`,
@@ -256,57 +288,50 @@ export function resolveUpdate(
       }
 
       const insertAt = anchorMatch.index + 1;
-      const hit = { start: insertAt, del: 0, add: [...chunk.new_lines] };
       if (insertAt === lines.length) {
-        resolved.push(
-          buildResolvedChunk(
-            lines,
-            chunk,
-            hit,
-            !anchorMatch.exact || contextRewritten,
-            insertAt,
-            insertAt,
-            chunk.new_lines,
-            canonicalContext,
-          ),
-        );
+        resolved.push({
+          hit: {
+            start: insertAt,
+            del: 0,
+            add: [...chunk.new_lines],
+          },
+          old_lines: [],
+          canonical_old_lines: [],
+          canonical_new_lines: [...chunk.new_lines],
+          canonical_change_context: anchorMatch.exact
+            ? undefined
+            : anchorMatch.canonicalLine,
+          resolved_is_end_of_file: insertAt === lines.length,
+          rewritten: !anchorMatch.exact,
+          strategy: anchorMatch.exact ? strategy : 'anchor',
+          matchComparator: anchorMatch.comparator,
+        });
         start = insertAt;
         continue;
       }
 
       const anchor = lines[insertAt];
-      const trailingBlank = anchor === '' && insertAt === lines.length - 1;
 
-      resolved.push(
-        buildResolvedChunk(
-          lines,
-          chunk,
-          trailingBlank
-            ? { start: insertAt, del: 1, add: [...chunk.new_lines] }
-            : hit,
-          true,
-          insertAt,
-          insertAt + 1,
-          trailingBlank ? chunk.new_lines : [...chunk.new_lines, anchor],
-          canonicalContext,
-        ),
-      );
+      strategy = 'anchor';
+      resolved.push({
+        hit: {
+          start: insertAt,
+          del: 0,
+          add: [...chunk.new_lines],
+        },
+        old_lines: [],
+        canonical_old_lines: [anchor],
+        canonical_new_lines: [...chunk.new_lines, anchor],
+        resolved_is_end_of_file: insertAt + 1 === lines.length,
+        rewritten: true,
+        strategy,
+        matchComparator: 'exact',
+      });
       start = insertAt;
       continue;
     }
 
-    const found = locateChunk(lines, file, chunk, chunkStart);
-    if (
-      chunk.change_context &&
-      !canonicalContext &&
-      seek(lines, found.canonical_old_lines, found.canonical_start + 1) >= 0
-    ) {
-      throw new Error(
-        `Failed to find context '${chunk.change_context}' in ${file}`,
-      );
-    }
-    found.canonical_change_context = canonicalContext;
-    found.rewritten ||= contextRewritten;
+    const found = locateChunk(lines, file, chunk, chunkStart, cfg);
     resolved.push(found);
     start = found.hit.start + found.hit.del;
   }
@@ -322,12 +347,81 @@ export function resolveUpdate(
   }
 
   return {
+    lines,
     resolved,
-    nextText: applyHits(
-      lines,
-      resolved.map((chunk) => chunk.hit),
-      eol,
-      hasFinalNewline,
-    ),
+    eol: state.eol,
+    hasFinalNewline: state.hasFinalNewline,
   };
+}
+
+export async function resolveUpdateChunks(
+  file: string,
+  chunks: PatchChunk[],
+  cfg: ApplyPatchRuntimeOptions,
+): Promise<{
+  lines: string[];
+  resolved: ResolvedChunk[];
+  eol: '\n' | '\r\n';
+  hasFinalNewline: boolean;
+}> {
+  return resolveUpdateChunksFromFileLines(
+    file,
+    await readFileLinesWithEol(file),
+    chunks,
+    cfg,
+  );
+}
+
+export function deriveNewContentFromText(
+  file: string,
+  text: string,
+  chunks: PatchChunk[],
+  cfg: ApplyPatchRuntimeOptions,
+): string {
+  const { lines, resolved, eol, hasFinalNewline } =
+    resolveUpdateChunksFromFileLines(file, splitFileLines(text), chunks, cfg);
+
+  return applyHits(
+    lines,
+    resolved.map((chunk) => chunk.hit),
+    eol,
+    hasFinalNewline,
+  );
+}
+
+export function resolveUpdateChunksFromText(
+  file: string,
+  text: string,
+  chunks: PatchChunk[],
+  cfg: ApplyPatchRuntimeOptions,
+): {
+  lines: string[];
+  resolved: ResolvedChunk[];
+  eol: '\n' | '\r\n';
+  hasFinalNewline: boolean;
+} {
+  return resolveUpdateChunksFromFileLines(
+    file,
+    splitFileLines(text),
+    chunks,
+    cfg,
+  );
+}
+
+export async function deriveNewContent(
+  file: string,
+  chunks: PatchChunk[],
+  cfg: ApplyPatchRuntimeOptions,
+): Promise<string> {
+  const { lines, resolved, eol, hasFinalNewline } = await resolveUpdateChunks(
+    file,
+    chunks,
+    cfg,
+  );
+  return applyHits(
+    lines,
+    resolved.map((chunk) => chunk.hit),
+    eol,
+    hasFinalNewline,
+  );
 }

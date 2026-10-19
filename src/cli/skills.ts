@@ -1,12 +1,40 @@
-import { AGENT_ALIASES } from '../config/constants';
+import { spawnSync } from 'node:child_process';
+import {
+  isReservedSkillAllowed,
+  RESERVED_ORCHESTRATOR_ONLY_SKILLS,
+} from '../config/orchestrator-only-skills';
+import { getDefaultNonSpPolicy } from './agent-tier-policy';
 import { CUSTOM_SKILLS } from './custom-skills';
+import {
+  buildSuperpowersSkillPermissions,
+  discoverSuperpowersSkillNames,
+  resolveBaseAgentName,
+} from './superpowers-policy';
+
+/**
+ * A recommended skill to install via `npx skills add`.
+ */
+export interface RecommendedSkill {
+  /** Human-readable name for prompts */
+  name: string;
+  /** GitHub repo URL for `npx skills add` */
+  repo: string;
+  /** Skill name within the repo (--skill flag) */
+  skillName: string;
+  /** List of agents that should auto-allow this skill */
+  allowedAgents: string[];
+  /** Description shown to user during install */
+  description: string;
+  /** Optional commands to run after the skill is added */
+  postInstallCommands?: string[];
+}
 
 /**
  * A skill that is managed externally (e.g. user-installed) and needs
  * permission grants but is NOT installed by this plugin's CLI.
  */
 export interface PermissionOnlySkill {
-  /** Skill name - must match the name OpenCode uses for permission checks */
+  /** Skill name — must match the name OpenCode uses for permission checks */
   name: string;
   /** List of agents that should auto-allow this skill */
   allowedAgents: string[];
@@ -15,172 +43,172 @@ export interface PermissionOnlySkill {
 }
 
 /**
- * Skills managed externally (not installed by this plugin's CLI).
- * Entries here only affect agent permission grants - nothing is installed.
+ * List of recommended skills.
+ * Add new skills here to include them in the installation flow.
  */
-export const PERMISSION_ONLY_SKILLS: PermissionOnlySkill[] = [
+export const RECOMMENDED_SKILLS: RecommendedSkill[] = [
   {
-    name: 'requesting-code-review',
-    allowedAgents: ['oracle'],
-    description:
-      'Code review template for reviewer subagents in multi-step workflows',
+    name: 'agent-browser',
+    repo: 'https://github.com/vercel-labs/agent-browser',
+    skillName: 'agent-browser',
+    allowedAgents: ['designer'],
+    description: 'High-performance browser automation',
+    postInstallCommands: [
+      'npm install -g agent-browser',
+      'agent-browser install',
+    ],
   },
 ];
 
 /**
- * Names of the skills an agent is granted by default when no explicit
- * `skills` list is configured: bundled custom skills plus
- * externally-managed skills whose `allowedAgents` includes `'*'` or the
- * canonical agent name. Order follows the registries: CUSTOM_SKILLS first,
- * then PERMISSION_ONLY_SKILLS.
+ * Skills managed externally (not installed by this plugin's CLI).
+ * Entries here only affect agent permission grants — nothing is installed.
  */
-export function getDefaultGrantedSkillNames(agentName: string): string[] {
-  const canonicalAgentName = AGENT_ALIASES[agentName] ?? agentName;
-  const names: string[] = [];
-  for (const skill of [...CUSTOM_SKILLS, ...PERMISSION_ONLY_SKILLS]) {
-    if (
-      skill.allowedAgents.includes('*') ||
-      skill.allowedAgents.includes(canonicalAgentName)
-    ) {
-      names.push(skill.name);
+export const PERMISSION_ONLY_SKILLS: PermissionOnlySkill[] = [];
+
+/**
+ * Install a skill using `npx skills add`.
+ * @param skill - The skill to install
+ * @returns True if installation succeeded, false otherwise
+ */
+export function installSkill(skill: RecommendedSkill): boolean {
+  const args = [
+    'skills',
+    'add',
+    skill.repo,
+    '--skill',
+    skill.skillName,
+    '-a',
+    'opencode',
+    '-y',
+    '--global',
+  ];
+
+  try {
+    const result = spawnSync('npx', args, { stdio: 'inherit' });
+    if (result.status !== 0) {
+      return false;
     }
+
+    // Run post-install commands if any
+    if (skill.postInstallCommands && skill.postInstallCommands.length > 0) {
+      console.log(`Running post-install commands for ${skill.name}...`);
+      for (const cmd of skill.postInstallCommands) {
+        console.log(`> ${cmd}`);
+        const [command, ...cmdArgs] = cmd.split(' ');
+        const cmdResult = spawnSync(command, cmdArgs, { stdio: 'inherit' });
+        if (cmdResult.status !== 0) {
+          console.warn(`Post-install command failed: ${cmd}`);
+        }
+      }
+    }
+
+    return true;
+  } catch (error) {
+    console.error(`Failed to install skill: ${skill.name}`, error);
+    return false;
   }
-  return names;
 }
 
 /**
- * Get permission presets for a specific agent based on bundled skills.
+ * Get permission presets for a specific agent based on recommended skills.
  * @param agentName - The name of the agent
- * @param skillList - Optional explicit list of skills to allow (overrides defaults)
+ * @param skillList - Optional explicit list of skills to allow (overrides recommendations)
+ * @param superpowersSkillsDir - Optional configured Lite Superpowers skills root
  * @returns Permission rules for the skill permission type
  */
 export function getSkillPermissionsForAgent(
   agentName: string,
-  skillList?: readonly string[],
-  disabledSkillNames?: readonly string[],
+  skillList?: string[],
+  superpowersSkillsDir?: string,
 ): Record<string, 'allow' | 'ask' | 'deny'> {
-  const disabledSkills = new Set(
-    Array.isArray(disabledSkillNames) ? disabledSkillNames : [],
+  const superpowersSkills = discoverSuperpowersSkillNames(superpowersSkillsDir);
+  const superpowersPermissions = buildSuperpowersSkillPermissions(
+    agentName,
+    superpowersSkills,
   );
 
-  // Orchestrator gets all skills by default, others are restricted
-  const permissions: Record<string, 'allow' | 'ask' | 'deny'> = {
-    '*': agentName === 'orchestrator' ? 'allow' : 'deny',
-  };
-
-  // If the user provided an explicit skill list (even empty), honor it
+  // If the user provided an explicit skill list (even empty), honor it.
   if (skillList) {
-    permissions['*'] = 'deny';
+    const explicitPermissions: Record<string, 'allow' | 'ask' | 'deny'> = {
+      '*': 'deny',
+    };
+
     for (const name of skillList) {
       if (name === '*') {
-        permissions['*'] = 'allow';
+        explicitPermissions['*'] = 'allow';
       } else if (name.startsWith('!')) {
-        permissions[name.slice(1)] = 'deny';
-      } else if (!disabledSkills.has(name)) {
-        permissions[name] = 'allow';
+        explicitPermissions[name.slice(1)] = 'deny';
+      } else {
+        explicitPermissions[name] = 'allow';
       }
     }
-    for (const name of disabledSkills) {
-      permissions[name] = 'deny';
+
+    for (const [name, policy] of Object.entries(superpowersPermissions)) {
+      const explicit = explicitPermissions[name] ?? explicitPermissions['*'];
+      explicitPermissions[name] =
+        policy === 'allow' && explicit === 'allow' ? 'allow' : 'deny';
     }
-    return permissions;
+
+    applyReservedSkillOverrides(explicitPermissions, agentName);
+    return explicitPermissions;
   }
 
-  // Apply permissions for the skills the agent is granted by default
-  // (bundled custom skills + externally-managed skills)
-  for (const name of getDefaultGrantedSkillNames(agentName)) {
-    if (!disabledSkills.has(name)) {
-      permissions[name] = 'allow';
+  const defaultPolicy = getDefaultNonSpPolicy(agentName);
+  const permissions: Record<string, 'allow' | 'ask' | 'deny'> = {
+    '*': defaultPolicy,
+    ...superpowersPermissions,
+  };
+
+  // Resolve variant suffix names (e.g., "fixer-alpha" -> "fixer") so variants
+  // inherit base-agent allowedAgents matches without explicit per-variant
+  // entries in CUSTOM_SKILLS / RECOMMENDED_SKILLS / PERMISSION_ONLY_SKILLS.
+  const resolvedAgentName = resolveBaseAgentName(agentName);
+
+  for (const skill of RECOMMENDED_SKILLS) {
+    const isAllowed =
+      skill.allowedAgents.includes('*') ||
+      skill.allowedAgents.includes(agentName) ||
+      skill.allowedAgents.includes(resolvedAgentName);
+    if (isAllowed) {
+      permissions[skill.skillName] = 'allow';
     }
   }
 
-  for (const name of disabledSkills) {
-    permissions[name] = 'deny';
+  // Apply permissions from bundled custom skills
+  for (const skill of CUSTOM_SKILLS) {
+    const isAllowed =
+      skill.allowedAgents.includes('*') ||
+      skill.allowedAgents.includes(agentName) ||
+      skill.allowedAgents.includes(resolvedAgentName);
+    if (isAllowed) {
+      permissions[skill.name] = 'allow';
+    }
   }
 
+  // Apply permissions for externally-managed skills (not installed by this plugin)
+  for (const skill of PERMISSION_ONLY_SKILLS) {
+    const isAllowed =
+      skill.allowedAgents.includes('*') ||
+      skill.allowedAgents.includes(agentName) ||
+      skill.allowedAgents.includes(resolvedAgentName);
+    if (isAllowed) {
+      permissions[skill.name] = 'allow';
+    }
+  }
+
+  applyReservedSkillOverrides(permissions, agentName);
   return permissions;
 }
 
-/**
- * Fold per-agent skill directives into an effective skills list.
- *
- * 1. Without a base `skills` list the working base is the agent's default
- *    grants (orchestrator defaults to allow-all, so its working base is
- *    `['*']`), so `skills_add` alone keeps the defaults and appends, and
- *    `skills_remove` alone prunes from the defaults.
- * 2. Explicit token removals are applied to the working base first. This
- *    lets `skills_remove: ['!name']` lift an inherited exclusion before
- *    additions are evaluated.
- * 3. Remaining exclusion (`'!name'`) tokens prevent `skills_add` from
- *    re-granting the excluded skill. Plain-name removals also suppress an
- *    addition of the same name, so removal wins over addition.
- * 4. If the result contains `'*'`, a plain-name removal is granted
- *    implicitly by the wildcard, so it is made explicit by appending the
- *    existing `'!name'` exclusion token - unless already present.
- *
- * The returned token list is consumed by the existing skill permission
- * resolver (`getSkillPermissionsForAgent`), which continues to interpret
- * `'*'` and `'!name'` as before.
- *
- * Returns `undefined` when nothing is configured to resolve (no base, no
- * additions, no removals) so the agent keeps its default skill behavior.
- */
-export function resolveEffectiveSkills(
+function applyReservedSkillOverrides(
+  permissions: Record<string, 'allow' | 'ask' | 'deny'>,
   agentName: string,
-  base: readonly string[] | undefined,
-  add: readonly string[] | undefined,
-  remove: readonly string[] | undefined,
-  defaultSkills?: readonly string[],
-): string[] | undefined {
-  const addList = Array.isArray(add) ? add : [];
-  const removeList = Array.isArray(remove) ? remove : [];
-  if (base === undefined && addList.length === 0 && removeList.length === 0) {
-    return undefined;
+): void {
+  const reservedPolicy: 'allow' | 'deny' = isReservedSkillAllowed(agentName)
+    ? 'allow'
+    : 'deny';
+  for (const skill of RESERVED_ORCHESTRATOR_ONLY_SKILLS) {
+    permissions[skill] = reservedPolicy;
   }
-
-  // Without a base list the working base is the agent's default grants
-  // (orchestrator defaults to allow-all), so additions build on top of
-  // what the agent already gets and removals prune from it.
-  const workingBase =
-    base ??
-    defaultSkills ??
-    (agentName === 'orchestrator'
-      ? ['*']
-      : getDefaultGrantedSkillNames(agentName));
-
-  // Apply explicit token removals before deriving active exclusions. This
-  // is what makes removing '!foo' genuinely lift that inherited exclusion.
-  const removeSet = new Set(removeList);
-  const baseAfterRemoval = workingBase.filter((token) => !removeSet.has(token));
-
-  // Additions must not override exclusions that remain after removals.
-  const excluded = new Set(
-    baseAfterRemoval
-      .filter((token) => token.startsWith('!'))
-      .map((token) => token.slice(1)),
-  );
-
-  const list = [
-    ...new Set([
-      ...baseAfterRemoval,
-      ...addList.filter((name) => !excluded.has(name) && !removeSet.has(name)),
-    ]),
-  ];
-
-  // A plain-name removal that the list grants implicitly via '*' must be
-  // made explicit with the existing '!name' exclusion token, unless the
-  // exclusion is already present.
-  if (list.includes('*')) {
-    for (const name of new Set(removeList)) {
-      if (name.startsWith('!')) {
-        continue;
-      }
-      const exclusion = `!${name}`;
-      if (!list.includes(exclusion)) {
-        list.push(exclusion);
-      }
-    }
-  }
-
-  return list;
 }

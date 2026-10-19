@@ -1,23 +1,17 @@
-import { NO_SHELL_READONLY_FILE_OPERATIONS_RULES } from '../config';
 import { type AgentDefinition, resolvePrompt } from './orchestrator';
-import {
-  createReadOnlyAgentPermission,
-  TASK_OBSERVER_DISPATCH_ONLY,
-} from './permissions';
 
 /**
- * Councillor agent - a read-only advisor in the multi-LLM council.
+ * Councillor agent — a read-only advisor in the multi-LLM council.
  *
- * Councillors are dispatched by the orchestrator (via `task()` on v1,
- * `subagent()` on v2) as agent sessions
- * (visible in tmux/UI). They have read-only access to the codebase via tools
- * but CANNOT modify files, run shell commands, or spawn subagents.
+ * Councillors are spawned by CouncilManager as agent sessions (visible in
+ * tmux/UI). They have read-only access to the codebase via tools but CANNOT
+ * modify files, run shell commands, or spawn subagents.
  *
  * Permission model mirrors OpenCode's built-in `explore` agent:
  * deny all, then selectively allow read-only tools.
  *
  * The per-councillor model is overridden at session creation time via the
- * `model` field in the prompt body - the agent factory's default model is
+ * `model` field in the prompt body — the agent factory's default model is
  * just a fallback.
  */
 const COUNCILLOR_PROMPT = `You are a councillor in a multi-model council.
@@ -36,16 +30,14 @@ problem.
 You CANNOT edit files, write files, run shell commands, or delegate to \
 other agents. You are an advisor, not an implementer.
 
-${NO_SHELL_READONLY_FILE_OPERATIONS_RULES}
-
 **Behavior**:
-- **Examine the codebase** before answering - your read access is what makes \
+- **Examine the codebase** before answering — your read access is what makes \
   council valuable. Don't guess at code you can see.
 - Analyze the problem thoroughly
 - Provide a complete, well-reasoned response
 - Focus on the quality and correctness of your solution
 - Be direct and concise
-- Don't be influenced by what other councillors might say - you won't see \
+- Don't be influenced by what other councillors might say — you won't see \
   their responses
 
 **Output**:
@@ -59,35 +51,32 @@ export function createCouncillorAgent(
   model: string,
   customPrompt?: string,
   customAppendPrompt?: string,
-  variant?: string,
-  observerDispatchEnabled = false,
 ): AgentDefinition {
   const prompt = resolvePrompt(
-    'councillor',
-    customPrompt,
-    undefined,
     COUNCILLOR_PROMPT,
+    customPrompt,
     customAppendPrompt,
   );
 
   return {
     name: 'councillor',
     description:
-      'Read-only council advisor providing independent codebase analysis.',
+      'Read-only council advisor. Examines codebase and provides independent analysis. Spawned internally by the council system.',
     config: {
       model,
-      variant,
+      temperature: 0.2,
       prompt,
-      // Strict read-only allowlist: deny all, then allow inspection tools
-      // only. `task` stays at the blanket deny unless nested dispatch is
-      // live (v2 + observer enabled), where it narrows to observer-only so
-      // a councillor can have images read for it without gaining any other
-      // spawning capability.
+      // Mirror OpenCode's explore agent: deny all, then allow read-only tools
       permission: {
-        ...createReadOnlyAgentPermission(),
-        task: observerDispatchEnabled
-          ? { ...TASK_OBSERVER_DISPATCH_ONLY }
-          : 'deny',
+        '*': 'deny',
+        question: 'deny',
+        read: 'allow',
+        glob: 'allow',
+        grep: 'allow',
+        lsp: 'allow',
+        list: 'allow',
+        codesearch: 'allow',
+        ast_grep_search: 'allow',
       },
     },
   };

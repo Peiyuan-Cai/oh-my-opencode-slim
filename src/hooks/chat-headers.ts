@@ -1,7 +1,6 @@
 import type { PluginInput, ProviderContext } from '@opencode-ai/plugin';
 import type { Model, UserMessage } from '@opencode-ai/sdk';
-import { isInternalInitiatorPart } from '../utils';
-import { getClient } from '../utils/opencode-client';
+import { hasInternalInitiatorMarker } from '../utils';
 
 interface ChatHeadersInput {
   sessionID: string;
@@ -14,11 +13,6 @@ interface ChatHeadersOutput {
   headers: Record<string, string>;
 }
 
-/** Copilot routing header the hook may set (shared with the v2 bridge in
- * `src/v2/setup.ts` so both hosts stamp the exact same header/value). */
-export const CHAT_INITIATOR_HEADER_NAME = 'x-initiator';
-export const CHAT_INITIATOR_HEADER_AGENT = 'agent';
-
 const INTERNAL_MARKER_CACHE_LIMIT = 1000;
 const internalMarkerCache = new Map<string, boolean>();
 
@@ -30,10 +24,7 @@ function getProviderID(input: ChatHeadersInput): string {
   return input.provider.info?.id || input.model.providerID;
 }
 
-/** Copilot provider ids whose backend distinguishes user- vs
- * agent-initiated requests via the `x-initiator` header. Exported for the
- * v2 `session.model.request` bridge (`src/v2/setup.ts`). */
-export function isCopilotProvider(providerID: string): boolean {
+function isCopilotProvider(providerID: string): boolean {
   return (
     providerID === 'github-copilot' ||
     providerID === 'github-copilot-enterprise'
@@ -41,7 +32,7 @@ export function isCopilotProvider(providerID: string): boolean {
 }
 
 async function hasInternalMarker(
-  input: PluginInput,
+  client: PluginInput['client'],
   sessionID: string,
   messageID: string,
 ): Promise<boolean> {
@@ -52,12 +43,11 @@ async function hasInternalMarker(
   }
 
   try {
-    const response = await getClient(input).session.message({
+    const response = await client.session.message({
       path: { id: sessionID, messageID },
-      query: { directory: input.directory },
     });
     const hasMarker = (response.data?.parts ?? []).some(
-      isInternalInitiatorPart,
+      hasInternalInitiatorMarker,
     );
 
     if (hasMarker) {
@@ -91,11 +81,17 @@ export function createChatHeadersHook(ctx: PluginInput) {
         return;
       }
 
-      if (!(await hasInternalMarker(ctx, input.sessionID, input.message.id))) {
+      if (
+        !(await hasInternalMarker(
+          ctx.client,
+          input.sessionID,
+          input.message.id,
+        ))
+      ) {
         return;
       }
 
-      output.headers[CHAT_INITIATOR_HEADER_NAME] = CHAT_INITIATOR_HEADER_AGENT;
+      output.headers['x-initiator'] = 'agent';
     },
   };
 }

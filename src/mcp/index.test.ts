@@ -1,43 +1,47 @@
 import { describe, expect, test } from 'bun:test';
-import { createBuiltinMcps, getOverriddenBuiltinMcpKeys } from './index';
+import { createBuiltinMcps } from './index';
 
 describe('createBuiltinMcps', () => {
   test('returns all MCPs when no disabled list provided', () => {
     const mcps = createBuiltinMcps();
     const names = Object.keys(mcps);
 
+    expect(names).toContain('websearch');
     expect(names).toContain('context7');
-    expect(names).toContain('gh_grep');
+    expect(names).toContain('grep_app');
   });
 
   test('returns all MCPs with empty disabled list', () => {
     const mcps = createBuiltinMcps([]);
     const names = Object.keys(mcps);
 
-    expect(names.length).toBe(2);
+    expect(names.length).toBe(3);
+    expect(names).toContain('websearch');
     expect(names).toContain('context7');
-    expect(names).toContain('gh_grep');
+    expect(names).toContain('grep_app');
   });
 
   test('excludes single disabled MCP', () => {
-    const mcps = createBuiltinMcps(['gh_grep']);
+    const mcps = createBuiltinMcps(['websearch']);
     const names = Object.keys(mcps);
 
-    expect(names).not.toContain('gh_grep');
+    expect(names).not.toContain('websearch');
     expect(names).toContain('context7');
+    expect(names).toContain('grep_app');
   });
 
   test('excludes multiple disabled MCPs', () => {
-    const mcps = createBuiltinMcps(['gh_grep', 'context7']);
+    const mcps = createBuiltinMcps(['websearch', 'grep_app']);
     const names = Object.keys(mcps);
 
-    expect(names).not.toContain('gh_grep');
-    expect(names).not.toContain('context7');
-    expect(names.length).toBe(0);
+    expect(names).not.toContain('websearch');
+    expect(names).not.toContain('grep_app');
+    expect(names).toContain('context7');
+    expect(names.length).toBe(1);
   });
 
   test('excludes all MCPs when all disabled', () => {
-    const mcps = createBuiltinMcps(['context7', 'gh_grep']);
+    const mcps = createBuiltinMcps(['websearch', 'context7', 'grep_app']);
     const names = Object.keys(mcps);
 
     expect(names.length).toBe(0);
@@ -48,9 +52,10 @@ describe('createBuiltinMcps', () => {
     const names = Object.keys(mcps);
 
     // All valid MCPs should still be present
-    expect(names.length).toBe(2);
+    expect(names.length).toBe(3);
+    expect(names).toContain('websearch');
     expect(names).toContain('context7');
-    expect(names).toContain('gh_grep');
+    expect(names).toContain('grep_app');
   });
 
   test('MCP configs have required properties', () => {
@@ -65,6 +70,14 @@ describe('createBuiltinMcps', () => {
     }
   });
 
+  test('websearch MCP has correct structure', () => {
+    const mcps = createBuiltinMcps();
+    const websearch = mcps.websearch;
+
+    expect(websearch).toBeDefined();
+    expect('url' in websearch).toBe(true);
+  });
+
   test('context7 MCP has correct structure', () => {
     const mcps = createBuiltinMcps();
     const context7 = mcps.context7;
@@ -73,46 +86,11 @@ describe('createBuiltinMcps', () => {
     expect('url' in context7).toBe(true);
   });
 
-  test('gh_grep MCP has correct structure', () => {
+  test('grep_app MCP has correct structure', () => {
     const mcps = createBuiltinMcps();
-    const gh_grep = mcps.gh_grep;
+    const grep_app = mcps.grep_app;
 
-    expect(gh_grep).toBeDefined();
-    expect('url' in gh_grep).toBe(true);
-  });
-
-  test('never throws when disabledMcps is not an array', () => {
-    // Regression test: a malformed/non-array config.disabled_mcps value
-    // must degrade to "nothing disabled" instead of crashing plugin init.
-    const mcps = createBuiltinMcps('' as any);
-    const names = Object.keys(mcps);
-
-    expect(names.length).toBe(2);
-    expect(names).toContain('context7');
-    expect(names).toContain('gh_grep');
-  });
-});
-
-describe('getOverriddenBuiltinMcpKeys', () => {
-  test('returns built-in keys the user has defined', () => {
-    const builtins = createBuiltinMcps();
-    const keys = getOverriddenBuiltinMcpKeys(builtins, {
-      gh_grep: { type: 'remote', url: 'https://user.example.com/mcp' },
-    });
-    expect(keys).toEqual(['gh_grep']);
-  });
-
-  test('returns empty when user defines none of the built-ins', () => {
-    const keys = getOverriddenBuiltinMcpKeys(createBuiltinMcps(), {
-      other_mcp: { type: 'remote', url: 'https://x.example.com' },
-    });
-    expect(keys).toEqual([]);
-  });
-
-  test('counts an entry as user-defined even when null', () => {
-    const keys = getOverriddenBuiltinMcpKeys(createBuiltinMcps(), {
-      context7: null,
-    });
-    expect(keys).toEqual(['context7']);
+    expect(grep_app).toBeDefined();
+    expect('url' in grep_app).toBe(true);
   });
 });

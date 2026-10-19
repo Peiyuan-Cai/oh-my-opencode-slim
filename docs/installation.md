@@ -24,7 +24,7 @@ bunx oh-my-opencode-slim@latest install
 Or use non-interactive mode:
 
 ```bash
-bunx oh-my-opencode-slim@latest install --no-tui --background-subagents=yes
+bunx oh-my-opencode-slim@latest install --no-tui --skills=yes
 ```
 
 ### Configuration Options
@@ -33,53 +33,11 @@ The installer supports the following options:
 
 | Option | Description |
 |--------|-------------|
-| `--companion=ask\|yes\|no` | Install and enable the desktop Companion (`ask` by default; prompt defaults to no) |
+| `--skills=yes|no` | Install bundled skills (default: yes) |
 | `--preset=<name>` | Active generated config preset: `openai` or `opencode-go` (default: `openai`) |
-| `--background-subagents=ask\|yes\|no` | Configure the required background-subagents and Exa websearch environment exports (`ask` by default; prompt defaults to yes) |
-| `--background-subagents-target=<path>` | Write the background-subagents and websearch exports to a specific shell/profile file |
 | `--no-tui` | Non-interactive mode |
 | `--dry-run` | Simulate install without writing files |
 | `--reset` | Force overwrite of existing configuration |
-
-### Background Subagents Environment Setup
-
-Background orchestration is the default workflow. It depends on OpenCode's native
-background subagents, which are enabled by this environment variable:
-
-```bash
-OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true
-OPENCODE_ENABLE_EXA=1
-```
-
-The installer asks before adding those exports to your shell startup file. The
-prompt defaults to `yes` because V2's default orchestration depends on it.
-The Exa flag enables OpenCode's built-in `websearch` tool without requiring an
-API key.
-
-```bash
-bunx oh-my-opencode-slim@latest install
-```
-
-For non-interactive setup, pass the choice explicitly:
-
-```bash
-bunx oh-my-opencode-slim@latest install --no-tui --background-subagents=yes
-```
-
-After the installer updates a shell startup file, restart your terminal or source
-the file before launching OpenCode. Examples:
-
-```bash
-source ~/.zshrc
-# or
-source ~/.bashrc
-```
-
-For a one-shot manual launch without restarting your terminal:
-
-```bash
-OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true OPENCODE_ENABLE_EXA=1 opencode
-```
 
 ### Non-Destructive Behavior
 
@@ -99,13 +57,7 @@ bunx oh-my-opencode-slim@latest install --reset
 
 ### After Installation
 
-The installer generates both OpenAI and OpenCode Go presets, with OpenAI active by default (using variant-aware GPT-6 models, including `gpt-6-sol (medium)` for Orchestrator, `gpt-6-astra (high)` for Oracle, `gpt-6-luna (medium)` for Fixer, and `gpt-6-luna` variants for other specialists). To make OpenCode Go active during install, run `bunx oh-my-opencode-slim@latest install --preset=opencode-go`. That preset uses Minimax-M3 for Orchestrator, so the installer also enables Observer with `opencode-go/mimo-v2.5` for visual analysis. To switch providers later or build a mixed setup, use **[Configuration Reference](configuration.md)** for the full option reference and the preset docs for copyable examples.
-
-Bundled skills are registered in-process at plugin load — nothing is copied to
-disk, and plugin updates apply on the next OpenCode restart. Skills listed in
-`disabled_skills` are not registered. A same-named skill directory under
-`~/.config/opencode/skills/` overrides the bundled version (directory sources
-take precedence over plugin registrations).
+The installer generates both OpenAI and OpenCode Go presets, with OpenAI active by default (using `gpt-5.5` and `gpt-5.4-mini` models). To make OpenCode Go active during install, run `bunx oh-my-opencode-slim@latest install --preset=opencode-go`. That preset uses GLM-5.1 for Orchestrator, so the installer also enables Observer with `opencode-go/kimi-k2.6` for visual analysis. To switch providers later or build a mixed setup, use **[Configuration Reference](configuration.md)** for the full option reference and the preset docs for copyable examples.
 
 Then:
 
@@ -157,7 +109,7 @@ If not installed, direct the user to https://opencode.ai/docs first.
 The installer generates OpenAI and OpenCode Go presets, with OpenAI active by default:
 
 ```bash
-bunx oh-my-opencode-slim@latest install --no-tui
+bunx oh-my-opencode-slim@latest install --no-tui --skills=yes
 ```
 
 **Examples:**
@@ -165,11 +117,14 @@ bunx oh-my-opencode-slim@latest install --no-tui
 # Interactive install
 bunx oh-my-opencode-slim@latest install
 
-# Non-interactive
-bunx oh-my-opencode-slim@latest install --no-tui --background-subagents=yes
+# Non-interactive with bundled skills
+bunx oh-my-opencode-slim@latest install --no-tui --skills=yes
 
 # Make the generated OpenCode Go preset active
 bunx oh-my-opencode-slim@latest install --preset=opencode-go
+
+# Non-interactive without skills
+bunx oh-my-opencode-slim@latest install --no-tui --skills=no
 
 # Force overwrite existing configuration
 bunx oh-my-opencode-slim@latest install --reset
@@ -180,7 +135,6 @@ The installer automatically:
   `$OPENCODE_CONFIG_DIR` when set, otherwise `~/.config/opencode`
 - Disables default OpenCode agents
 - Enables OpenCode LSP integration when no explicit `lsp` setting exists
-- Configures `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true` when approved
 - Generates agent model mappings in the same OpenCode config directory as
   `oh-my-opencode-slim.json` (or `.jsonc`)
 
@@ -199,9 +153,7 @@ Ask the user to:
 
 1. Authenticate: `opencode auth login`
 2. Refresh models: `opencode models --refresh`
-3. Restart the terminal or source the shell file updated by the installer
-   (`source ~/.zshrc` or `source ~/.bashrc`), then start OpenCode: `opencode`
-   - One-shot alternative: `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true opencode`
+3. Start OpenCode: `opencode`
 4. Run: `ping all agents`
 
 Verify all agents respond successfully.
@@ -229,7 +181,7 @@ Then manually create the config files at:
 
 If the installer reports that the configuration already exists, you have two options:
 
-1. **Keep existing config**: The installer will skip the configuration step and continue with other operations (like adding the plugin).
+1. **Keep existing config**: The installer will skip the configuration step and continue with other operations (like adding the plugin or installing skills).
 
 2. **Reset configuration**: Use `--reset` to overwrite:
    ```bash
@@ -244,40 +196,13 @@ If the installer reports that the configuration already exists, you have two opt
    opencode auth status
    ```
 
-2. From your project root, verify your config file exists and is valid:
+2. From your project root, verify your plugin config file exists and matches the
+   documented schema:
    ```bash
-   bunx oh-my-opencode-slim@latest doctor
+   cat ~/.config/opencode/oh-my-opencode-slim.json
    ```
 
 3. Check that your provider is configured in `~/.config/opencode/opencode.json`
-
-### Missing Background Task Tools
-
-If background tasks never
-return task IDs, or delegation behaves like a blocking foreground call:
-
-1. Confirm OpenCode was launched with the environment variable:
-   ```bash
-   env | grep OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS
-   ```
-   It should show `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true`.
-
-   Also use an OpenCode release that includes native background
-   subagents; run `opencode --version` and update OpenCode if background tasks are missing.
-
-2. Restart your terminal or source the shell file the installer updated, then
-   start OpenCode again. Plain `opencode` is only sufficient after that
-   environment is active.
-
-3. For a quick manual test, launch OpenCode with a one-shot export:
-   ```bash
-   OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true opencode
-   ```
-
-4. If shell setup was missing, rerun the installer:
-   ```bash
-   bunx oh-my-opencode-slim@latest install
-   ```
 
 ### Authentication Issues
 
@@ -327,51 +252,19 @@ See the [Multiplexer Integration Guide](multiplexer-integration.md) for more det
 
 ## Uninstallation
 
-### Required
+1. **Remove the plugin from your OpenCode config**:
 
-1. Remove the plugin from your OpenCode config:
+   Edit `~/.config/opencode/opencode.json` and remove `"oh-my-opencode-slim"` from the `plugin` array.
 
-   Edit `~/.config/opencode/opencode.json` and remove `"oh-my-opencode-slim"` from the `plugin` array. If the installer enabled LSP (it only does so when no explicit `lsp` setting exists), set `"lsp": false` or remove the `"lsp"` key.
-
-2. Remove the TUI badge:
-
-   Edit `~/.config/opencode/tui.json` and remove `"oh-my-opencode-slim"` from the `plugin` array.
-
-### Optional Cleanup
-
-3. Re-enable default agents:
-
-   In `~/.config/opencode/opencode.json`, remove any `disable: true` entries under `agent.explore` and `agent.general` (older installers added these). The plugin disables those built-in subagents at runtime, with or without installer entries. To keep an agent enabled, declare an entry under its name — `agents.<name>` on v2, `agent.<name>` on v1/legacy — that does not itself set `disable`/`disabled: true`.
-
-4. Remove the environment variable:
-
-   The installer may have added an export to your shell startup file. Remove the `OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true` line from your shell config:
-   - `~/.zshrc` (Zsh)
-   - `~/.bashrc` (Bash)
-   - `~/.config/fish/conf.d/opencode-background-subagents.fish` (Fish) — also remove `set -gx OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS true`
-
-   Restart your terminal or `source` the file.
-
-5. Clear the plugin cache:
-   ```bash
-   rm -rf ~/.cache/opencode/packages/oh-my-opencode-slim@*
-   ```
-
-6. Remove configuration files:
+2. **Remove configuration files (optional)**:
    ```bash
    rm -f ~/.config/opencode/oh-my-opencode-slim.json
    rm -f ~/.config/opencode/oh-my-opencode-slim.json.bak
    ```
 
-7. Bundled skills are registered in-process by the plugin — removing the plugin entry (previous step) removes them. If a legacy install copied skills under `~/.config/opencode/skills/`, the plugin removes its manifest-tracked copies automatically on next load; user-authored skills are never touched.
-
-8. Remove the desktop companion binary (if installed):
-
-   The companion is optional and not installed by default. If you installed it:
+3. **Remove skills (optional)**:
    ```bash
-   rm -rf ~/.local/share/opencode/storage/oh-my-opencode-slim
+   rm -rf ~/.config/opencode/skills/simplify
+   rm -rf ~/.config/opencode/skills/codemap
+   rm -rf ~/.config/opencode/skills/clonedeps
    ```
-
-### Verify
-
-Run `opencode auth status` and confirm oh-my-opencode-slim agents no longer appear.

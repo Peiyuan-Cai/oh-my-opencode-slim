@@ -1,42 +1,30 @@
 /**
- * Appends the reminder to exactly one orchestrator user message: the first
- * eligible one in the session view. The anchor is fixed, so its rendered bytes
- * never change between requests — that turn-invariance protects the provider
- * prefix cache. #790 bought the same invariant by re-appending to every message
- * (O(N) copies); a fixed anchor buys it with O(1). The anchor only moves when
- * the host rewrites the prefix (compaction / trim / fork), which already
- * invalidates the cache, so re-anchoring costs nothing (aside from the first
- * injection when the gate opens on an existing view, which appends into what
- * was previously the cached prefix — same as the pre-change behavior).
- * Supersedes #790's mechanism; preserves #790's invariant.
+ * Phase reminder to append after each latest user message.
  *
- * Do NOT make this tail-only: a reminder pinned to the newest message rewrites
- * the previous anchor's bytes every turn and pays full input price every turn,
- * because a moving reminder is always new content and never survives long
- * enough to be cache-read.
+ * Keeping this at the tail preserves immediate workflow guidance without
+ * mutating the cached system prompt or prepending request-local content ahead
+ * of the user's actual turn.
  */
-import { PHASE_REMINDER } from '../../config/constants';
-import { isInternalInitiatorPart } from '../../utils';
-import {
-  appendTaggedSyntheticPart,
-  isTaggedPart,
-} from '../cache-safe-injection';
-import {
-  findLatestUserMessage,
-  isUserMessageWithParts,
-  type MessagePart,
-} from '../types';
+import { PHASE_REMINDER_TEXT } from '../../config/constants';
+import { SLIM_INTERNAL_INITIATOR_MARKER } from '../../utils';
 
-export { PHASE_REMINDER };
+export const PHASE_REMINDER = `<internal_reminder>${PHASE_REMINDER_TEXT}</internal_reminder>`;
 
-export const PHASE_REMINDER_METADATA_KEY = 'oh-my-opencode-slim.phaseReminder';
-
-export function hasPhaseReminder(part: MessagePart): boolean {
-  return isTaggedPart(part, PHASE_REMINDER_METADATA_KEY);
+interface MessageInfo {
+  role: string;
+  agent?: string;
+  sessionID?: string;
 }
 
-interface PhaseReminderOptions {
-  shouldInject?: (sessionID: string) => boolean;
+interface MessagePart {
+  type: string;
+  text?: string;
+  [key: string]: unknown;
+}
+
+interface MessageWithParts {
+  info: MessageInfo;
+  parts: MessagePart[];
 }
 
 /**
@@ -44,56 +32,61 @@ interface PhaseReminderOptions {
  * This hook runs right before sending to API, so it doesn't affect UI display.
  * Only injects for the orchestrator agent.
  */
-export function createPhaseReminderHook(options: PhaseReminderOptions = {}) {
+export function createPhaseReminderHook() {
   return {
     'experimental.chat.messages.transform': async (
       _input: Record<string, never>,
-      output: { messages?: unknown },
+      output: { messages: MessageWithParts[] },
     ): Promise<void> => {
-      const messages = Array.isArray(output.messages) ? output.messages : [];
+      const { messages } = output;
 
-      const lastUserMessage = findLatestUserMessage(messages);
-      if (!lastUserMessage) {
+      if (messages.length === 0) {
         return;
       }
 
-      const { agent, sessionID } = lastUserMessage.info;
-      if (
-        agent !== 'orchestrator' ||
-        !sessionID ||
-        (options.shouldInject && !options.shouldInject(sessionID))
-      ) {
+      let lastUserMessageIndex = -1;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].info.role === 'user') {
+          lastUserMessageIndex = i;
+          break;
+        }
+      }
+
+      if (lastUserMessageIndex === -1) {
         return;
       }
 
-      // Append as a separate part instead of mutating user-authored text;
-      // the reminder stays out of the UI display and history (issue #448).
-      for (const message of messages) {
-        if (
-          !isUserMessageWithParts(message) ||
-          message.info.agent !== 'orchestrator' ||
-          message.info.sessionID !== sessionID
-        ) {
-          continue;
-        }
-
-        const textPart = message.parts.find(
-          (part) => part.type === 'text' && part.text !== undefined,
-        );
-        if (!textPart || isInternalInitiatorPart(textPart)) {
-          continue;
-        }
-
-        // Anchor on the first eligible message and stop. A later anchor would
-        // rewrite already-cached bytes every turn (see the module docblock).
-        if (!message.parts.some(hasPhaseReminder)) {
-          appendTaggedSyntheticPart(message, {
-            text: PHASE_REMINDER,
-            metadataKey: PHASE_REMINDER_METADATA_KEY,
-          });
-        }
-        break;
+      const lastUserMessage = messages[lastUserMessageIndex];
+      const agent = lastUserMessage.info.agent;
+      if (agent && agent !== 'orchestrator') {
+        return;
       }
+
+      const textPartIndex = lastUserMessage.parts.findIndex(
+        (p) => p.type === 'text' && p.text !== undefined,
+      );
+
+      if (textPartIndex === -1) {
+        return;
+      }
+
+      const originalText = lastUserMessage.parts[textPartIndex].text ?? '';
+      if (originalText.includes(SLIM_INTERNAL_INITIATOR_MARKER)) {
+        return;
+      }
+      // Prevent duplicate injection: check if any existing part already contains
+      // the phase reminder (either merged into text or as a standalone part).
+      if (lastUserMessage.parts.some((p) => p.text?.includes(PHASE_REMINDER))) {
+        return;
+      }
+
+      // Append reminder as a new, separate message part instead of mutating
+      // the user-authored text. This prevents the reminder from leaking into
+      // the UI display and chat history (issue #448).
+      lastUserMessage.parts.push({
+        type: 'text',
+        text: PHASE_REMINDER,
+      });
     },
   };
 }

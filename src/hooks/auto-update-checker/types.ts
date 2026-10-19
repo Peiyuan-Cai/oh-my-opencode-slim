@@ -1,5 +1,3 @@
-import type { CompanionConfig } from '../../config/schema';
-
 export interface NpmDistTags {
   latest: string;
   [key: string]: string;
@@ -18,8 +16,7 @@ export interface CompatibleVersionResult {
 }
 
 export interface OpencodeConfig {
-  plugins?: unknown[]; // opencode2 (plural, preferred)
-  plugin?: unknown[]; // v1 (singular)
+  plugin?: unknown[];
   [key: string]: unknown;
 }
 
@@ -30,14 +27,13 @@ export interface PackageJson {
 }
 
 export interface AutoUpdateCheckerOptions {
+  showStartupToast?: boolean;
   autoUpdate?: boolean;
-  companion?: CompanionConfig;
 }
 
 export interface PluginEntryInfo {
   entry: string;
   isPinned: boolean;
-  isInstallerManaged: boolean;
   pinnedVersion: string | null;
   configPath: string;
 }

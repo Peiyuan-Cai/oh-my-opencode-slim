@@ -1,4 +1,3 @@
-import { escapeHtml } from '../utils/escape-html';
 import type { InterviewFileItem, InterviewListItem } from './types';
 
 interface DashboardInterviewItem extends InterviewListItem {
@@ -11,6 +10,15 @@ interface DashboardInterviewItem extends InterviewListItem {
 
 const BRAND_LOGO_URL =
   'https://ohmyopencodeslim.com/android-chrome-512x512.png';
+
+export function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
 
 // ─── Shared client-side helpers ────────────────────────────────────
 
@@ -367,8 +375,8 @@ export function renderDashboardPage(
         <p class="muted">${totalCount} item${totalCount === 1 ? '' : 's'}</p>
       </div>
       <div class="info-box">
-        <strong>Interviews</strong> - live sessions and recovered files. State is pushed from OpenCode sessions to this dashboard.<br>
-        <strong>Files without session</strong> - <code>.md</code> files in <code>${escapeHtml(outputFolder)}</code> with no frontmatter. Resume with <code>/interview &lt;name&gt;</code>.
+        <strong>Interviews</strong> — live sessions and recovered files. State is pushed from OpenCode sessions to this dashboard.<br>
+        <strong>Files without session</strong> — <code>.md</code> files in <code>${escapeHtml(outputFolder)}</code> with no frontmatter. Resume with <code>/interview &lt;name&gt;</code>.
       </div>
       <details style="margin-bottom:24px">
         <summary style="cursor:pointer;font-size:13px;color:rgba(255,255,255,0.4);user-select:none">Settings</summary>
@@ -396,7 +404,7 @@ export function renderDashboardPage(
       ${fileSection}
       <div class="footer">OH MY OPENCODE SLIM</div>
     </div>
-    <div class="update-banner" id="updateBanner">Dashboard updated - tap to refresh</div>
+    <div class="update-banner" id="updateBanner">Dashboard updated — tap to refresh</div>
     <script>
       ${clipboardHelperJs()}
       document.querySelectorAll('.copy-btn').forEach(btn => {
@@ -507,71 +515,12 @@ export function renderInterviewPage(
     <style>
       ${sharedStyles()}
       .brand-mark { width: 144px; height: 144px; }
-      .spec-block-card {
-        background: rgba(255,255,255,0.01);
-        border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 8px;
-        padding: 24px;
-        margin-bottom: 20px;
-        text-align: left;
-        transition: all 0.2s ease;
-      }
-      .spec-block-card:hover {
-        border-color: rgba(255,255,255,0.15);
-        background: rgba(255,255,255,0.02);
-      }
-      .spec-block-card h3 {
-        margin-top: 0;
-        font-size: 18px;
-        color: #ffffff;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
-        padding-bottom: 8px;
-        margin-bottom: 14px;
-      }
-      .spec-block-content {
-        font-size: 15px;
-        line-height: 1.6;
-        color: rgba(255,255,255,0.8);
-      }
-      .spec-block-comment-box {
-        margin-top: 16px;
-        padding-top: 16px;
-        border-top: 1px dashed rgba(255,255,255,0.08);
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-      .spec-block-comment-input {
-        min-height: 60px !important;
-        font-size: 14px !important;
-        padding: 10px !important;
-      }
-      .comment-submit-btn {
-        align-self: flex-end;
-        background: transparent;
-        border: 1px solid rgba(255,255,255,0.2);
-        color: rgba(255,255,255,0.8);
-        padding: 8px 16px;
-        border-radius: 6px;
-        font-size: 13px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-      .comment-submit-btn:hover:not(:disabled) {
-        border-color: #34d399;
-        color: #34d399;
-        background: rgba(52,211,153,0.05);
-      }
-      .comment-submit-btn:disabled {
-        opacity: 0.3;
-        cursor: not-allowed;
-      }
       h1 { font-size: 32px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 12px; line-height: 1.2; }
       h2 { font-size: 18px; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(255,255,255,0.4); margin-bottom: 24px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; }
       h3 { font-size: 18px; font-weight: 500; margin-bottom: 16px; line-height: 1.4; }
       p { margin-top: 0; }
       .meta { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: rgba(255,255,255,0.4); margin-bottom: 16px; letter-spacing: 0.05em; text-transform: uppercase; }
-
+      
        .file-path-container {
          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
          font-size: 13px;
@@ -605,18 +554,18 @@ export function renderInterviewPage(
        }
 
        .question {
-        background: rgba(255,255,255,0.02);
-        border: 1px solid rgba(255,255,255,0.1);
+        background: rgba(255,255,255,0.02); 
+        border: 1px solid rgba(255,255,255,0.1); 
         border-left: 1px solid rgba(255,255,255,0.1);
-        border-radius: 6px;
-        padding: 28px;
-        margin-bottom: 32px;
+        border-radius: 6px; 
+        padding: 28px; 
+        margin-bottom: 32px; 
         transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
       }
       .question:focus-within {
         border-color: rgba(255,255,255,0.3);
       }
-
+      
       /* Make active question much clearer */
       .question.active-question {
         background: rgba(255,255,255,0.04);
@@ -625,7 +574,7 @@ export function renderInterviewPage(
         box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.1);
         transform: translateX(4px);
       }
-
+      
       .options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
       .question-hint {
         display: flex;
@@ -658,14 +607,14 @@ export function renderInterviewPage(
         border: 1px solid rgba(255,255,255,0.08);
         color: rgba(255,255,255,0.95);
       }
-
-      .option {
-        border: 1px solid rgba(255,255,255,0.1);
-        background: transparent;
-        color: inherit;
-        border-radius: 6px;
-        padding: 14px 18px;
-        cursor: pointer;
+      
+      .option { 
+        border: 1px solid rgba(255,255,255,0.1); 
+        background: transparent; 
+        color: inherit; 
+        border-radius: 6px; 
+        padding: 14px 18px; 
+        cursor: pointer; 
         text-align: left;
         font-size: 16px;
         transition: all 0.2s ease;
@@ -676,13 +625,13 @@ export function renderInterviewPage(
         background: rgba(255,255,255,0.06);
         border-color: rgba(255,255,255,0.3);
       }
-      .option.selected {
-        background: #ffffff;
-        color: #000000;
-        border-color: #ffffff;
+      .option.selected { 
+        background: #ffffff; 
+        color: #000000; 
+        border-color: #ffffff; 
         font-weight: 500;
       }
-
+      
       .shortcut {
         display: inline-flex;
         align-items: center;
@@ -701,7 +650,7 @@ export function renderInterviewPage(
         background: rgba(0,0,0,0.15);
         color: rgba(0,0,0,0.9);
       }
-
+       
       .option-text {
         flex: 1;
         line-height: 1.4;
@@ -733,16 +682,16 @@ export function renderInterviewPage(
         font-size: 12px;
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       }
-
-      textarea {
-        width: 100%;
+      
+      textarea { 
+        width: 100%; 
         box-sizing: border-box;
-        min-height: 140px;
-        border-radius: 6px;
-        border: 1px solid rgba(255,255,255,0.15);
-        background: rgba(0,0,0,0.6);
-        color: inherit;
-        padding: 16px;
+        min-height: 140px; 
+        border-radius: 6px; 
+        border: 1px solid rgba(255,255,255,0.15); 
+        background: rgba(0,0,0,0.6); 
+        color: inherit; 
+        padding: 16px; 
         font-family: inherit;
         font-size: 16px;
         line-height: 1.5;
@@ -758,16 +707,16 @@ export function renderInterviewPage(
       .hidden-textarea {
         display: none;
       }
-
-      button.primary {
-        background: #ffffff;
-        color: #000000;
-        border: 0;
-        border-radius: 6px;
-        padding: 16px 24px;
+      
+      button.primary { 
+        background: #ffffff; 
+        color: #000000; 
+        border: 0; 
+        border-radius: 6px; 
+        padding: 16px 24px; 
         font-size: 16px;
         font-weight: 600;
-        cursor: pointer;
+        cursor: pointer; 
         width: 100%;
         transition: opacity 0.2s ease, transform 0.1s ease;
       }
@@ -778,11 +727,11 @@ export function renderInterviewPage(
       button.primary:active:not(:disabled) {
         transform: translateY(1px);
       }
-      button.primary:disabled {
-        opacity: 0.3;
-        cursor: not-allowed;
+      button.primary:disabled { 
+        opacity: 0.3; 
+        cursor: not-allowed; 
       }
-
+      
       .footer {
         margin-top: 32px;
         text-align: center;
@@ -823,7 +772,7 @@ export function renderInterviewPage(
         opacity: 1;
         pointer-events: all;
       }
-
+      
       .loading-overlay .status-text {
         font-size: 15px;
         letter-spacing: 0.1em;
@@ -931,102 +880,9 @@ export function renderInterviewPage(
         background: rgba(52,211,153,0.05);
       }
       .nudge-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-
-      /* ── TOC Sidebar ──────────────────────────────────────────────── */
-      .toc-sidebar {
-        position: fixed;
-        top: 0; left: 0; bottom: 0;
-        width: 240px;
-        background: rgba(255,255,255,0.02);
-        border-right: 1px solid rgba(255,255,255,0.06);
-        padding: 24px 0 80px;
-        overflow-y: auto;
-        z-index: 50;
-        display: none;
-      }
-      .toc-sidebar.visible { display: block; }
-      .toc-header {
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: rgba(255,255,255,0.28);
-        padding: 0 20px 14px;
-        border-bottom: 1px solid rgba(255,255,255,0.05);
-        margin-bottom: 8px;
-      }
-      .toc-item {
-        display: block;
-        padding: 7px 20px;
-        font-size: 13px;
-        color: rgba(255,255,255,0.5);
-        text-decoration: none;
-        cursor: pointer;
-        transition: all 0.15s ease;
-        border-left: 2px solid transparent;
-        line-height: 1.4;
-      }
-      .toc-item:hover {
-        color: rgba(255,255,255,0.85);
-        background: rgba(255,255,255,0.03);
-      }
-      .toc-item.active {
-        color: #ffffff;
-        border-left-color: #ffffff;
-        background: rgba(255,255,255,0.04);
-      }
-      body.toc-visible .wrap {
-        margin-left: 240px;
-      }
-
-      /* ── Chat Panel ───────────────────────────────────────────────── */
-      .chat-panel {
-        position: fixed;
-        bottom: 0; left: 0; right: 0;
-        background: rgba(0,0,0,0.92);
-        backdrop-filter: blur(12px);
-        border-top: 1px solid rgba(255,255,255,0.08);
-        padding: 12px 20px;
-        z-index: 60;
-        display: none;
-        gap: 10px;
-        align-items: center;
-      }
-      .chat-panel.visible { display: flex; }
-      body.chat-visible .wrap { padding-bottom: 72px; }
-      body.toc-visible .chat-panel { left: 240px; }
-      .chat-input {
-        flex: 1;
-        background: rgba(255,255,255,0.06);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 8px;
-        color: #ffffff;
-        font-family: inherit;
-        font-size: 14px;
-        padding: 10px 14px;
-        outline: none;
-        transition: border-color 0.2s ease;
-      }
-      .chat-input:focus { border-color: rgba(255,255,255,0.35); }
-      .chat-input::placeholder { color: rgba(255,255,255,0.3); }
-      .chat-send {
-        flex-shrink: 0;
-        background: #ffffff;
-        color: #000000;
-        border: 0;
-        border-radius: 8px;
-        padding: 10px 18px;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: opacity 0.2s ease;
-      }
-      .chat-send:hover:not(:disabled) { opacity: 0.85; }
-      .chat-send:disabled { opacity: 0.3; cursor: not-allowed; }
     </style>
   </head>
   <body>
-    <nav id="tocSidebar" class="toc-sidebar"></nav>
     <div class="wrap">
       <a href="/" class="back-link">← All Interviews</a>
       <div class="brand-header">
@@ -1034,12 +890,12 @@ export function renderInterviewPage(
       </div>
       <h1 id="idea">Connecting...</h1>
       <p class="muted" id="summary">Preparing interview session</p>
-
+      
       <div class="meta">
         <span id="status">INITIALIZING</span>
         <span>OH MY OPENCODE SLIM</span>
       </div>
-
+      
       <div id="filePathContainer" class="file-path-container" style="display: none;">
         <span class="file-path-icon">📄</span>
         <span id="markdownPath"></span>
@@ -1057,19 +913,14 @@ export function renderInterviewPage(
         <button class="nudge-btn" id="moreQuestionsBtn" type="button">Ask more questions</button>
         <button class="nudge-btn nudge-confirm" id="confirmCompleteBtn" type="button">Confirm complete ✓</button>
       </div>
-
+      
        <button class="primary" id="submitButton" disabled>Submit Answers <span class="submit-shortcut">⌘↵</span></button>
-
+      
       <div class="footer" id="submitStatus"></div>
     </div>
-
+    
     <div class="loading-overlay" id="loadingOverlay">
       <div class="status-text" id="loadingText">Processing...</div>
-    </div>
-
-    <div class="chat-panel" id="chatPanel">
-      <input type="text" id="chatInput" class="chat-input" placeholder="Send a message to the agent - add a section, revise content, ask questions..." autocomplete="off" />
-      <button class="chat-send" id="chatSendBtn" type="button" disabled>Send</button>
     </div>
 
     <script>
@@ -1104,7 +955,7 @@ export function renderInterviewPage(
           !allAnswered;
         const hideSubmit = ['completed', 'session-disconnected'];
         button.style.display = hideSubmit.includes(state.data.mode) ? 'none' : '';
-
+        
         const overlay = document.getElementById('loadingOverlay');
         const overlayText = document.getElementById('loadingText');
         if (state.data.isBusy) {
@@ -1124,7 +975,7 @@ export function renderInterviewPage(
         button.type = 'button';
         button.className = 'option';
         button.id = getOptionButtonId(question.id, index);
-
+        
         const shortcut = index < 9 ? (index + 1) : '';
         if (shortcut) {
           const kbd = document.createElement('span');
@@ -1132,7 +983,7 @@ export function renderInterviewPage(
           kbd.textContent = shortcut;
           button.appendChild(kbd);
         }
-
+        
         const text = document.createElement('span');
         text.className = 'option-text';
         text.textContent = isCustom ? 'Custom' : option;
@@ -1155,13 +1006,13 @@ export function renderInterviewPage(
           }
           handleOptionSelect(question, option, isCustom);
         });
-
+        
         return button;
       }
 
       function handleOptionSelect(question, option, isCustom) {
         const textarea = document.getElementById('answer-' + question.id);
-
+        
         if (isCustom) {
           state.customMode[question.id] = true;
           state.answers[question.id] = state.customMode[question.id]
@@ -1178,7 +1029,7 @@ export function renderInterviewPage(
           updateTextareaVisibility(question.id);
           advanceToNextQuestion(question.id);
         }
-
+        
         updateSubmitButton();
         updateOptionsDOM(question.id);
       }
@@ -1196,7 +1047,7 @@ export function renderInterviewPage(
       function advanceToNextQuestion(currentQuestionId) {
         const questions = state.data?.questions || [];
         const currentIndex = questions.findIndex(q => q.id === currentQuestionId);
-
+        
         if (currentIndex >= 0 && currentIndex < questions.length - 1) {
           state.activeQuestionIndex = currentIndex + 1;
           updateActiveQuestionFocus();
@@ -1216,10 +1067,10 @@ export function renderInterviewPage(
       function updateOptionsDOM(questionId) {
         const question = (state.data?.questions || []).find(q => q.id === questionId);
         if (!question) return;
-
+        
         const predefined = question.options || [];
         const currentAnswer = state.answers[question.id];
-
+        
         predefined.forEach((opt, idx) => {
            const btn = document.getElementById(getOptionButtonId(questionId, idx));
            if (btn) {
@@ -1227,7 +1078,7 @@ export function renderInterviewPage(
               else btn.classList.remove('selected');
            }
         });
-
+        
         const customBtn = document.getElementById(getOptionButtonId(questionId, predefined.length));
         if (customBtn) {
            if (state.customMode[questionId]) {
@@ -1352,12 +1203,12 @@ export function renderInterviewPage(
          if (num >= 1 && num <= 9) {
           const activeQ = questions[state.activeQuestionIndex];
           if (!activeQ) return;
-
+          
           const options = activeQ.options || [];
           if (!options.length) return;
 
           const idx = num - 1;
-
+          
           if (idx < options.length) {
             handleOptionSelect(activeQ, options[idx], false);
             e.preventDefault();
@@ -1367,7 +1218,7 @@ export function renderInterviewPage(
          }
 
         }
-
+        
         if (e.key === 'ArrowDown') {
            if (state.activeQuestionIndex < questions.length - 1) {
               state.activeQuestionIndex++;
@@ -1427,7 +1278,7 @@ export function renderInterviewPage(
 
       // simpleMarkdown: safe because escaping happens BEFORE markdown
       // processing. Adding raw HTML output from user content would break
-      // this safety - always use textContent for user data.
+      // this safety — always use textContent for user data.
       function simpleMarkdown(text) {
         if (!text) return '';
         const escaped = text
@@ -1441,94 +1292,21 @@ export function renderInterviewPage(
         return paragraphs.map(p => \`<p>\${p.replace(/\\n/g, '<br>')}</p>\`).join('');
       }
 
-      async function submitBlockComment(sectionTitle, commentText, button) {
-        if (!commentText.trim()) return;
-        button.disabled = true;
-        const submitStatus = document.getElementById('submitStatus');
-        submitStatus.textContent = '';
-
-        try {
-          const res = await fetch('/api/interviews/' + encodeURIComponent(interviewId) + '/block-comment', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ section: sectionTitle, comment: commentText }),
-          });
-          const payload = await res.json();
-          if (res.ok) {
-            submitStatus.textContent = 'Feedback queued for block: ' + sectionTitle;
-            const input = button.previousElementSibling;
-            if (input) input.value = '';
-            refresh().catch(() => {});
-          } else {
-            submitStatus.textContent = payload.error || 'Failed to submit comment.';
-          }
-        } catch (err) {
-          submitStatus.textContent = 'Error submitting block connection feedback.';
-        } finally {
-          button.disabled = false;
-        }
-      }
-
       function renderCompletedView(data) {
         const container = document.getElementById('questions');
+        const { spec, qaPairs } = parseDocument(data.document);
         const frag = document.createDocumentFragment();
 
-        const blocks = data.blocks || [];
-        if (blocks.length > 0) {
+        // Spec section
+        if (spec) {
           const specLabel = document.createElement('div');
           specLabel.className = 'section-label';
-          specLabel.textContent = 'Interactive Specifications (11 Sections)';
+          specLabel.textContent = 'Current Spec';
           frag.appendChild(specLabel);
-
-          for (const block of blocks) {
-            const card = document.createElement('div');
-            card.className = 'spec-block-card';
-
-            const header = document.createElement('h3');
-            header.textContent = block.title;
-            card.appendChild(header);
-
-            const content = document.createElement('div');
-            content.className = 'spec-block-content';
-            content.innerHTML = simpleMarkdown(block.content);
-            card.appendChild(content);
-
-            // Per-block comment integration for micro annotations
-            const commentBox = document.createElement('div');
-            commentBox.className = 'spec-block-comment-box';
-
-            const textarea = document.createElement('textarea');
-            textarea.className = 'spec-block-comment-input';
-            textarea.placeholder = 'Provide review comment/revision for ' + block.title + '...';
-            commentBox.appendChild(textarea);
-
-            const sendBtn = document.createElement('button');
-            sendBtn.className = 'comment-submit-btn';
-            sendBtn.type = 'button';
-            sendBtn.textContent = 'Revise Section';
-            sendBtn.addEventListener('click', () => {
-              submitBlockComment(block.title, textarea.value, sendBtn);
-            });
-            commentBox.appendChild(sendBtn);
-
-            card.appendChild(commentBox);
-            frag.appendChild(card);
-          }
-        } else {
-          // Fallback legacy parse if blocks array isn't populated
-          const { spec, qaPairs } = parseDocument(data.document);
-
-          // Spec section
-          if (spec) {
-            const specLabel = document.createElement('div');
-            specLabel.className = 'section-label';
-            specLabel.textContent = 'Current Spec';
-            frag.appendChild(specLabel);
-            const specBlock = document.createElement('div');
-            specBlock.className = 'spec-block';
-            specBlock.innerHTML = simpleMarkdown(spec);
-            frag.appendChild(specBlock);
-          }
+          const specBlock = document.createElement('div');
+          specBlock.className = 'spec-block';
+          specBlock.innerHTML = simpleMarkdown(spec);
+          frag.appendChild(specBlock);
         }
 
         // Q&A section
@@ -1537,7 +1315,6 @@ export function renderInterviewPage(
         qaLabel.textContent = 'Q&A History';
         frag.appendChild(qaLabel);
 
-        const { qaPairs } = parseDocument(data.document);
         if (!qaPairs.length) {
           const empty = document.createElement('p');
           empty.className = 'qa-empty';
@@ -1573,7 +1350,7 @@ export function renderInterviewPage(
             aBadge.textContent = 'A';
             const aText = document.createElement('span');
             aText.className = 'qa-text qa-text-a';
-            aText.textContent = pair.a || '-';
+            aText.textContent = pair.a || '—';
             aRow.appendChild(aBadge);
             aRow.appendChild(aText);
             card.appendChild(aRow);
@@ -1585,103 +1362,6 @@ export function renderInterviewPage(
 
         container.replaceChildren(frag);
       }
-
-      // ── TOC Sidebar ──────────────────────────────────────────────
-      function updateTocSidebar(data) {
-        const sidebar = document.getElementById('tocSidebar');
-        const blocks = data.blocks || [];
-        const isDone = ['completed', 'session-disconnected'].includes(data.mode);
-        if (!isDone || !blocks.length) {
-          sidebar.classList.remove('visible');
-          document.body.classList.remove('toc-visible');
-          return;
-        }
-        sidebar.classList.add('visible');
-        document.body.classList.add('toc-visible');
-        sidebar.innerHTML = '';
-        const header = document.createElement('div');
-        header.className = 'toc-header';
-        header.textContent = 'Sections';
-        sidebar.appendChild(header);
-        blocks.forEach((block) => {
-          const item = document.createElement('a');
-          item.className = 'toc-item';
-          item.textContent = block.title;
-          item.addEventListener('click', () => {
-            const cards = document.querySelectorAll('.spec-block-card h3');
-            for (const h3 of cards) {
-              if (h3.textContent === block.title) {
-                h3.closest('.spec-block-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
-                break;
-              }
-            }
-            document.querySelectorAll('.toc-item').forEach((el) => el.classList.remove('active'));
-            item.classList.add('active');
-          });
-          sidebar.appendChild(item);
-        });
-      }
-
-      // ── Chat Panel ───────────────────────────────────────────────
-      function updateChatPanel(data) {
-        const panel = document.getElementById('chatPanel');
-        const input = document.getElementById('chatInput');
-        const sendBtn = document.getElementById('chatSendBtn');
-        const isDone = ['completed', 'session-disconnected'].includes(data.mode);
-        if (!isDone) {
-          panel.classList.remove('visible');
-          document.body.classList.remove('chat-visible');
-          return;
-        }
-        panel.classList.add('visible');
-        document.body.classList.add('chat-visible');
-        const busy = data.isBusy || false;
-        sendBtn.disabled = busy;
-        input.disabled = busy;
-        if (busy) {
-          input.placeholder = 'Agent is processing...';
-        } else {
-          input.placeholder = 'Send a message to the agent - add a section, revise content, ask questions...';
-        }
-      }
-
-      async function sendChatMessage() {
-        const input = document.getElementById('chatInput');
-        const sendBtn = document.getElementById('chatSendBtn');
-        const message = input.value.trim();
-        if (!message) return;
-        sendBtn.disabled = true;
-        input.value = '';
-        const submitStatus = document.getElementById('submitStatus');
-        submitStatus.textContent = '';
-        try {
-          const res = await fetch('/api/interviews/' + encodeURIComponent(interviewId) + '/chat', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ message }),
-          });
-          const payload = await res.json();
-          if (res.ok) {
-            submitStatus.textContent = 'Chat message sent to agent.';
-            refresh().catch(() => {});
-            schedulePoll();
-          } else {
-            submitStatus.textContent = payload.message || payload.error || 'Failed to send chat message.';
-            sendBtn.disabled = false;
-          }
-        } catch (_err) {
-          submitStatus.textContent = 'Network error sending chat message.';
-          sendBtn.disabled = false;
-        }
-      }
-
-      document.getElementById('chatSendBtn').addEventListener('click', sendChatMessage);
-      document.getElementById('chatInput').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          sendChatMessage();
-        }
-      });
 
       function renderQuestions(questions) {
         const sig = JSON.stringify([questions, state.data?.mode]);
@@ -1696,7 +1376,7 @@ export function renderInterviewPage(
           updateActiveQuestionFocus();
           return;
         }
-
+        
         state.lastSig = sig;
         container.replaceChildren();
 
@@ -1719,7 +1399,7 @@ export function renderInterviewPage(
           const wrapper = document.createElement('div');
           wrapper.className = 'question';
           wrapper.id = 'question-' + question.id;
-
+          
            if (question.suggested && !state.answers[question.id]) {
              state.answers[question.id] = question.suggested;
              state.customMode[question.id] = false;
@@ -1756,12 +1436,12 @@ export function renderInterviewPage(
            if (!state.customMode[question.id]) {
              textarea.classList.add('hidden-textarea');
            }
-
+           
            textarea.addEventListener('focus', () => {
               state.activeQuestionIndex = idx;
             updateActiveQuestionFocus();
           });
-
+          
           textarea.addEventListener('input', () => {
             state.answers[question.id] = textarea.value;
             updateSubmitButton();
@@ -1771,7 +1451,7 @@ export function renderInterviewPage(
 
           container.appendChild(wrapper);
         });
-
+        
         updateActiveQuestionFocus();
         questions.forEach(q => updateOptionsDOM(q.id));
         const currentActiveQuestionId = questions[state.activeQuestionIndex]?.id;
@@ -1798,8 +1478,8 @@ export function renderInterviewPage(
         const statusEl = document.getElementById('status');
         statusEl.textContent = data.mode.toUpperCase();
         statusEl.className = isDone ? 'status-completed' : '';
-
-        // Render Markdown Path - always visible in completed mode
+        
+        // Render Markdown Path — always visible in completed mode
         const pathContainer = document.getElementById('filePathContainer');
         const pathElement = document.getElementById('markdownPath');
         const mdPath = data.markdownPath || (data.interview && data.interview.markdownPath);
@@ -1817,7 +1497,7 @@ export function renderInterviewPage(
           pathContainer.style.display = 'none';
         }
 
-        // Resume command - only in session-disconnected mode
+        // Resume command — only in session-disconnected mode
         var resumeRow = document.getElementById('resumeRow');
         if (resumeRow) {
           var showResume = data.mode === 'session-disconnected';
@@ -1827,7 +1507,7 @@ export function renderInterviewPage(
           }
         }
 
-        // Nudge actions - only for completed (live session)
+        // Nudge actions — only for completed (live session)
         // session-disconnected can't nudge (no session to receive it)
         const nudgeActions = document.getElementById('nudgeActions');
         const moreBtn = document.getElementById('moreQuestionsBtn');
@@ -1836,22 +1516,9 @@ export function renderInterviewPage(
         if (nudgeActions) nudgeActions.style.display = canNudge ? 'flex' : 'none';
         if (moreBtn) moreBtn.disabled = data.isBusy;
         if (confirmBtn) confirmBtn.disabled = data.isBusy;
-
+        
         renderQuestions(data.questions || []);
         updateSubmitButton();
-        updateTocSidebar(data);
-        updateChatPanel(data);
-
-        // If we transitioned to a non-terminal state and connection/polling is stopped, restart them
-        const terminalModes = ['abandoned', 'completed', 'session-disconnected'];
-        if (!terminalModes.includes(data.mode)) {
-          if (!sseConnected && !activeEs) {
-            connectSse();
-          }
-          if (!sseConnected && !pollFallbackTimer) {
-            schedulePoll();
-          }
-        }
       }
 
       async function refresh() {
@@ -1950,7 +1617,7 @@ export function renderInterviewPage(
             if (confirmBtn) confirmBtn.disabled = false;
           } else {
             try { await refresh(); } catch (_) {}
-            schedulePoll(); // Restart polling - nudge may reactivate interview
+            schedulePoll(); // Restart polling — nudge may reactivate interview
           }
         } catch (_err) {
           document.getElementById('submitStatus').textContent = 'Network error.';
@@ -1962,65 +1629,19 @@ export function renderInterviewPage(
       document.getElementById('moreQuestionsBtn').addEventListener('click', () => sendNudge('more-questions'));
       document.getElementById('confirmCompleteBtn').addEventListener('click', () => sendNudge('confirm-complete'));
 
-      // ── Real-time updates via SSE ─────────────────────────────────
-      let sseConnected = false;
-      let pollFallbackTimer = null;
-      let activeEs = null;
-
-      function connectSse() {
-        if (activeEs) {
-          activeEs.close();
-        }
-        const sseUrl = '/api/interviews/' + encodeURIComponent(interviewId) + '/events';
-        const es = new EventSource(sseUrl);
-        activeEs = es;
-
-        es.addEventListener('state', (e) => {
-          sseConnected = true;
-          if (pollFallbackTimer) {
-            clearTimeout(pollFallbackTimer);
-            pollFallbackTimer = null;
-          }
-          try {
-            const data = JSON.parse(e.data);
-            render(data);
-          } catch (_) {}
-        });
-
-        es.onerror = () => {
-          sseConnected = false;
-          es.close();
-          activeEs = null;
-          const terminalModes = ['abandoned', 'completed', 'session-disconnected'];
-          if (state.data && terminalModes.includes(state.data.mode)) {
-            return;
-          }
-          // Retry SSE after 3s, fall back to polling in the meantime
-          if (!pollFallbackTimer) schedulePoll();
-          setTimeout(() => connectSse(), 3000);
-        };
-      }
-
       function schedulePoll() {
-        // Only poll if SSE is not connected
-        if (sseConnected) return;
-        const terminalModes = ['abandoned', 'completed', 'session-disconnected'];
-        if (state.data && terminalModes.includes(state.data.mode)) {
-          return;
-        }
-        pollFallbackTimer = setTimeout(async () => {
+        setTimeout(async () => {
           try { await refresh(); } catch (_) {}
-          pollFallbackTimer = null;
-          if (!sseConnected) {
-            schedulePoll();
-          }
+          // Stop polling for terminal states
+          const terminalModes = ['abandoned', 'completed', 'session-disconnected'];
+          if (!terminalModes.includes(state.data?.mode)) schedulePoll();
         }, 2500);
       }
 
       refresh().catch((error) => {
         document.getElementById('submitStatus').textContent = error.message || 'Failed to load interview.';
       });
-      connectSse();
+      schedulePoll();
     </script>
   </body>
 </html>`;

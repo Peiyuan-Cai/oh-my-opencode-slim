@@ -2,34 +2,12 @@ import * as fs from 'node:fs';
 import { appendFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { redactSecretsForLog } from './redact';
 
 const LOG_PREFIX = 'oh-my-opencode-slim.';
 const LOG_SUFFIX = '.log';
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-/**
- * Process identity for the log file name. `opencode` loads this plugin once
- * per location inside a single server process, and the sink below is
- * process-global, so one file per process is the correct unit. The pid
- * suffix keeps two processes that start within the same second from
- * colliding on the file name.
- */
-const PROCESS_LOG_STAMP = new Date()
-  .toISOString()
-  .replace(/[-:]/g, '')
-  .slice(0, 15);
-
-type LogSink =
-  | { kind: 'uninitialized' }
-  | { kind: 'file'; filePath: string }
-  | { kind: 'stderr' };
-
-const FALLBACK_WARNING =
-  '[oh-my-opencode-slim] file logging unavailable, falling back to stderr';
-
-let loggerGeneration = 0;
-let currentSink: LogSink = { kind: 'uninitialized' };
+let logFile: string | null = null;
 let writeChain: Promise<void> = Promise.resolve();
 
 function getLogDir(): string {
@@ -57,7 +35,7 @@ function cleanupOldLogs(logDir: string): void {
       }
     }
   } catch {
-    // Directory may not exist yet - that's fine
+    // Directory may not exist yet — that's fine
   }
 
   // Apply the same 7-day retention to persisted background task files
@@ -78,79 +56,29 @@ function cleanupOldLogs(logDir: string): void {
       }
     }
   } catch {
-    // bg-tasks dir may not exist yet - that's fine
+    // bg-tasks dir may not exist yet — that's fine
   }
 }
 
-function safeStderr(message: string): void {
-  try {
-    console.error(message);
-  } catch {
-    // Logging must remain best-effort.
-  }
-}
-
-function enterStderrFallback(expectedGeneration: number): void {
-  if (expectedGeneration !== loggerGeneration) return;
-  if (currentSink.kind === 'stderr') return;
-
-  currentSink = { kind: 'stderr' };
-  safeStderr(FALLBACK_WARNING);
-}
-
-function handleAppendFailure(failedGeneration: number, logEntry: string): void {
-  enterStderrFallback(failedGeneration);
-  safeStderr(logEntry.trimEnd());
-}
-
-export function initLogger(tag?: 'tui'): void {
-  // The sink is a process-global singleton shared by every plugin instance in
-  // this process. Re-initializing with the same log directory is a no-op:
-  // later instances (one per location) reuse the file instead of re-pointing
-  // the sink and re-scanning the directory on every load. A changed log
-  // directory (test isolation, explicit reconfiguration) re-initializes. The
-  // first init also owns the tag: server and client run in separate
-  // processes, so a mixed tag in one directory is not reachable in practice.
+export function initLogger(sessionId: string): void {
   const dir = getLogDir();
-  if (
-    currentSink.kind === 'file' &&
-    path.dirname(currentSink.filePath) === dir
-  ) {
-    // Reuse the file, but still run retention: a long-lived process reloads
-    // instances without changing the directory, and old logs/background-task
-    // files should not wait for a restart. The scan is cheap now that the file
-    // count is O(processes), not O(loads).
-    cleanupOldLogs(dir);
-    return;
-  }
-
-  const attemptGeneration = ++loggerGeneration;
-
   try {
     fs.mkdirSync(dir, { recursive: true });
-
-    const nextLogFile = path.join(
-      dir,
-      `${LOG_PREFIX}${tag ? `${tag}-` : ''}${PROCESS_LOG_STAMP}-${process.pid}${LOG_SUFFIX}`,
-    );
-    fs.closeSync(fs.openSync(nextLogFile, 'a'));
-
-    if (attemptGeneration !== loggerGeneration) return;
-
-    currentSink = {
-      kind: 'file',
-      filePath: nextLogFile,
-    };
-    cleanupOldLogs(dir);
   } catch {
-    enterStderrFallback(attemptGeneration);
+    // Directory creation failed — logging will silently fail
   }
+  logFile = path.join(dir, `${LOG_PREFIX}${sessionId}${LOG_SUFFIX}`);
+  try {
+    fs.closeSync(fs.openSync(logFile, 'a'));
+  } catch {
+    // File creation failed — later writes will silently fail
+  }
+  cleanupOldLogs(dir);
 }
 
 /** @internal Reset logger state for testing */
 export function resetLogger(): void {
-  loggerGeneration += 1;
-  currentSink = { kind: 'uninitialized' };
+  logFile = null;
   writeChain = Promise.resolve();
 }
 
@@ -159,13 +87,12 @@ export async function flushLoggerForTesting(): Promise<void> {
   await writeChain;
 }
 
+export { getLogDir };
+
 export function log(message: string, data?: unknown): void {
+  const target = logFile;
+  if (!target) return; // Uninitialized — silently no-op
   try {
-    const sink = currentSink;
-    const entryGeneration = loggerGeneration;
-
-    if (sink.kind === 'uninitialized') return;
-
     const timestamp = new Date().toISOString();
     let dataStr = '';
     if (data !== undefined) {
@@ -175,41 +102,13 @@ export function log(message: string, data?: unknown): void {
         dataStr = '[unserializable]';
       }
     }
-
-    // Redaction choke point: every sink below (file append, stderr, and
-    // the append-failure stderr fallback) receives this one composed,
-    // already-redacted entry, so no call site can bypass the masking.
-    // Best-effort shape-based barrier against accidental credential
-    // leaks — see src/utils/redact.ts for the documented limits.
-    const logEntry = redactSecretsForLog(
-      `[${timestamp}] ${message} ${dataStr}\n`,
-    );
-
-    if (sink.kind === 'stderr') {
-      safeStderr(logEntry.trimEnd());
-      return;
-    }
-
-    const filePath = sink.filePath;
+    const logEntry = `[${timestamp}] ${message} ${dataStr}\n`;
     writeChain = writeChain
-      .catch(() => undefined)
-      .then(async () => {
-        if (
-          entryGeneration === loggerGeneration &&
-          currentSink.kind === 'stderr'
-        ) {
-          safeStderr(logEntry.trimEnd());
-          return;
-        }
-
-        try {
-          await appendFile(filePath, logEntry);
-        } catch {
-          handleAppendFailure(entryGeneration, logEntry);
-        }
-      })
-      .catch(() => undefined);
+      .then(() => appendFile(target, logEntry))
+      .catch(() => {
+        // Silently ignore logging errors and keep future writes alive
+      });
   } catch {
-    // Logging must remain best-effort.
+    // Silently ignore logging errors
   }
 }

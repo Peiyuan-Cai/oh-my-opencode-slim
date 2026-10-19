@@ -1,136 +1,225 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  COUNCIL_COMPACTION_EXCEPTION,
-  createCouncilAgent,
-  ensureCouncilCompactionException,
-  ensureCouncilSynthesisReinforcement,
-} from './council';
-import { createSynthesisOnlyPermission } from './permissions';
+import { formatCouncillorPrompt, formatCouncillorResults } from './council';
 
-const COMPACTION_EXCEPTION =
-  'if the host asks you to produce a session checkpoint or compaction summary in a specific template, follow that template exactly and do not use the council report format';
+describe('formatCouncillorResults', () => {
+  const originalPrompt =
+    'What is the best way to implement a REST API in TypeScript?';
 
-function councilPrompt(...args: Parameters<typeof createCouncilAgent>): string {
-  const prompt = createCouncilAgent(...args).config.prompt;
-  expect(prompt).toBeDefined();
-  return prompt as string;
-}
+  test('formats completed councillor results correctly', () => {
+    const councillorResults = [
+      {
+        name: 'alpha',
+        model: 'anthropic/claude-opus-4-6',
+        status: 'completed',
+        result: 'Use Express.js with TypeScript interfaces for type safety.',
+      },
+      {
+        name: 'beta',
+        model: 'openai/gpt-5.5',
+        status: 'completed',
+        result:
+          'Consider Fastify for better performance and built-in type validation.',
+      },
+    ];
 
-/** Assembly-layer chain: what agents/index.ts and registry.ts apply to the
- * FINAL effective council prompt (after resolvePrompt and host merge). */
-function reinforced(prompt: string): string {
-  return ensureCouncilCompactionException(
-    ensureCouncilSynthesisReinforcement(prompt),
-  );
-}
+    const formatted = formatCouncillorResults(
+      originalPrompt,
+      councillorResults,
+    );
 
-describe('createCouncilAgent', () => {
-  test('synthesis permission denies nested dispatch', () => {
-    const permission = createCouncilAgent('provider/model').config
-      .permission as Record<string, unknown>;
-    expect(permission.task).toBe('deny');
+    expect(formatted).toContain('**Original Prompt**:');
+    expect(formatted).toContain(originalPrompt);
+    expect(formatted).toContain('**alpha** (claude-opus-4-6):');
+    expect(formatted).toContain('**beta** (gpt-5.5):');
+    expect(formatted).toContain(
+      'Use Express.js with TypeScript interfaces for type safety.',
+    );
+    expect(formatted).toContain(
+      'Consider Fastify for better performance and built-in type validation.',
+    );
+    expect(formatted).toContain('**Councillor Responses**:');
+    expect(formatted).toContain(
+      'You MUST follow the Synthesis Process steps before producing output',
+    );
+    expect(formatted).toContain(
+      'consensus confidence rating (unanimous, majority, or split)',
+    );
+    expect(formatted).not.toContain('**Failed/Timed-out Councillors**:');
   });
 
-  // Policy-source drift guard: any future allow-entry addition at the
-  // createSynthesisOnlyPermission() factory trips here before it can reach the
-  // request level. task tools (task_status etc.) are denied by the '*' wildcard
-  // at factory level; the per-tool control denies are injected centrally by
-  // applyDefaultPermissions at assembled-agent level (pinned in
-  // src/agents/index.test.ts), so we deliberately do NOT add a redundant
-  // per-key entry to the factory map.
-  test('synthesis-only permission factory is wildcard-deny with no allow entries', () => {
-    const permission = createSynthesisOnlyPermission();
-    expect(permission['*']).toBe('deny');
-    expect(Object.values(permission).every((value) => value === 'deny')).toBe(
-      true,
+  test('includes failed councillors section when some fail', () => {
+    const councillorResults = [
+      {
+        name: 'alpha',
+        model: 'anthropic/claude-opus-4-6',
+        status: 'completed',
+        result: 'Use Express.js with TypeScript interfaces for type safety.',
+      },
+      {
+        name: 'beta',
+        model: 'openai/gpt-5.5',
+        status: 'timed_out',
+        error: 'Request timed out after 180000ms',
+      },
+      {
+        name: 'gamma',
+        model: 'google/gemini-pro',
+        status: 'failed',
+        error: 'Provider returned empty response',
+      },
+    ];
+
+    const formatted = formatCouncillorResults(
+      originalPrompt,
+      councillorResults,
     );
+
+    expect(formatted).toContain('**Councillor Responses**:');
+    expect(formatted).toContain('**alpha** (claude-opus-4-6):');
+    expect(formatted).toContain(
+      'Use Express.js with TypeScript interfaces for type safety.',
+    );
+    expect(formatted).toContain('**Failed/Timed-out Councillors**:');
+    expect(formatted).toContain(
+      '**beta**: timed_out — Request timed out after 180000ms',
+    );
+    expect(formatted).toContain(
+      '**gamma**: failed — Provider returned empty response',
+    );
+    expect(formatted).not.toContain('**beta** (gpt-5.5):');
+    expect(formatted).not.toContain('**gamma** (gemini-pro):');
   });
 
-  test('harness assembly keeps the agent tool-less and its prompt untouched', () => {
-    // Seat text arrives by host-side attachment (tool.execute.before
-    // resolver); the synthesizer is fed purely from its context and carries
-    // no tool menu in its prompt.
-    const agent = createCouncilAgent('provider/model');
-    const permission = agent.config.permission as Record<string, unknown>;
-    expect(permission['*']).toBe('deny');
-    expect((agent.config as { tools?: unknown }).tools).toBeUndefined();
-    const prompt = councilPrompt('provider/model');
-    expect(prompt).toContain(
-      'You synthesize purely from the councillor responses provided in your context.',
+  test('returns fallback message when all councillors fail', () => {
+    const councillorResults = [
+      {
+        name: 'alpha',
+        model: 'anthropic/claude-opus-4-6',
+        status: 'timeout',
+        error: 'Request timed out',
+      },
+      {
+        name: 'beta',
+        model: 'openai/gpt-5.5',
+        status: 'error',
+        error: 'Provider error',
+      },
+    ];
+
+    const formatted = formatCouncillorResults(
+      originalPrompt,
+      councillorResults,
     );
-    expect(prompt).not.toContain('**Tools**:');
-    expect(prompt).not.toContain('You have NO tools');
-    expect(prompt).not.toContain('Do not read, glob, grep');
-    expect(prompt).toContain(
-      'synthesize them into a structured council report',
-    );
-    expect(prompt).toContain(
-      'The orchestrator handles dispatch and provides the councillor results.',
-    );
-    expect(prompt).not.toContain('You do NOT dispatch');
-    // Seat names, not model labels — the assembly headers use record.agent.
-    expect(prompt).toContain(
-      'the seat name, e.g. "alpha", not the model label',
-    );
+
+    expect(formatted).toContain('**Original Prompt**:');
+    expect(formatted).toContain(originalPrompt);
+    expect(formatted).toContain('**Councillor Responses**:');
+    expect(formatted).toContain('All councillors failed to produce output:');
+    expect(formatted).toContain('**alpha** (claude-opus-4-6):');
+    expect(formatted).toContain('**beta** (gpt-5.5):');
+    expect(formatted).toContain('Request timed out');
+    expect(formatted).toContain('Provider error');
   });
 
-  test('factory emits the base prompt without inline reinforcement', () => {
-    const prompt = councilPrompt('test/model');
-    expect(prompt).toContain('## Council Response');
-    expect(prompt).toContain('## Per-Councillor Details');
-    expect(prompt).toContain('## Council Summary');
-    // Reinforcement is applied at the assembly layer, not in the factory.
-    expect(prompt).not.toContain('You MUST follow the Synthesis Process');
+  test('handles councillors with result but completed status', () => {
+    const councillorResults = [
+      {
+        name: 'alpha',
+        model: 'anthropic/claude-opus-4-6',
+        status: 'completed',
+        result: 'Valid response',
+      },
+      {
+        name: 'beta',
+        model: 'openai/gpt-5.5',
+        status: 'completed',
+        result: 'Another valid response',
+      },
+    ];
+
+    const formatted = formatCouncillorResults(
+      originalPrompt,
+      councillorResults,
+    );
+
+    expect(formatted).toContain('**alpha** (claude-opus-4-6):');
+    expect(formatted).toContain('Valid response');
+    expect(formatted).toContain('**beta** (gpt-5.5):');
+    expect(formatted).toContain('Another valid response');
+    expect(formatted).toContain('review each councillor response individually');
   });
 });
 
-describe('ensureCouncilSynthesisReinforcement (assembly layer)', () => {
-  test('default base already carries the report format and is not reinforced', () => {
-    const base = councilPrompt('test/model');
-    const prompt = reinforced(base);
-    // Single-track: the base prompt's own Required Output Format satisfies
-    // the check byte-identically — no pointer, no fallback appended.
-    expect(prompt).toBe(base);
-    expect(prompt).not.toContain('You MUST produce: ## Council Response');
-    expect(prompt).not.toContain('You MUST follow the Synthesis Process');
-    // The exception appears exactly once (the base prompt's own copy); the
-    // deleted pointer used to be its second carrier.
-    const occurrences = prompt.split(COMPACTION_EXCEPTION).length - 1;
-    expect(occurrences).toBe(1);
+describe('formatCouncillorPrompt', () => {
+  const userPrompt = 'How do I implement async/await in TypeScript?';
+
+  test('returns user prompt unchanged when no councillor prompt is provided', () => {
+    const formatted = formatCouncillorPrompt(userPrompt);
+    expect(formatted).toBe(userPrompt);
   });
 
-  test('custom prompt override retains the required report format', () => {
-    // Simulate the real assembly path: resolvePrompt replaced the generated
-    // content with an override that dropped the format sections.
-    const prompt = reinforced('Custom council prompt with no format rules.');
-    expect(prompt).toContain('You MUST produce: ## Council Response');
-    expect(prompt).toContain('## Per-Councillor Details');
-    expect(prompt).toContain('## Council Summary');
-    expect(prompt).toContain(COMPACTION_EXCEPTION);
-  });
+  test('prepends councillor prompt with separator when provided', () => {
+    const councillorPrompt =
+      'You are a TypeScript expert. Focus on practical examples.';
+    const formatted = formatCouncillorPrompt(userPrompt, councillorPrompt);
 
-  test('override carrying its own report format is left byte-identical', () => {
-    const override = 'Custom prompt with its own ## Council Response section.';
-    const prompt = reinforced(override);
-    // No reinforcement: no fallback is appended, and no pointer exists.
-    expect(prompt).toBe(`${override}\n\n${COUNCIL_COMPACTION_EXCEPTION}`);
-    expect(prompt).not.toContain('You MUST produce: ## Council Response');
-    expect(prompt).not.toContain('You MUST follow the Synthesis Process');
-  });
-
-  test('is idempotent', () => {
-    const once = reinforced('Custom council prompt with no format rules.');
-    const twice = reinforced(once);
-    expect(once).toBe(twice);
-    expect(once.split('You MUST produce: ## Council Response').length - 1).toBe(
-      1,
+    expect(formatted).toContain(councillorPrompt);
+    expect(formatted).toContain(userPrompt);
+    expect(formatted).toContain('---');
+    expect(formatted).toMatch(
+      new RegExp(
+        `^${councillorPrompt.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          '\\$&',
+        )}\\n\\n---\\n\\n${userPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+      ),
     );
   });
 
-  test('ensureCouncilCompactionException is idempotent', () => {
-    const once = ensureCouncilCompactionException('custom council prompt');
-    const twice = ensureCouncilCompactionException(once);
-    expect(once).toBe(twice);
-    expect(once.split(COUNCIL_COMPACTION_EXCEPTION).length - 1).toBe(1);
+  test('handles multiline councillor prompt', () => {
+    const councillorPrompt =
+      'You are an expert.\nFocus on clarity.\nProvide code examples.';
+    const formatted = formatCouncillorPrompt(userPrompt, councillorPrompt);
+
+    expect(formatted).toContain(councillorPrompt);
+    expect(formatted).toContain(userPrompt);
+    expect(formatted).toContain('---');
+    expect(formatted).toMatch(
+      new RegExp(
+        `^${councillorPrompt.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          '\\$&',
+        )}\\n\\n---\\n\\n${userPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+      ),
+    );
+  });
+
+  test('handles empty councillor prompt', () => {
+    const formatted = formatCouncillorPrompt(userPrompt, '');
+    expect(formatted).toBe(userPrompt);
+  });
+
+  test('handles multiline user prompt with councillor prompt', () => {
+    const councillorPrompt = 'You are an expert.';
+    const multilineUserPrompt = 'Line 1\nLine 2\nLine 3';
+    const formatted = formatCouncillorPrompt(
+      multilineUserPrompt,
+      councillorPrompt,
+    );
+
+    expect(formatted).toContain(councillorPrompt);
+    expect(formatted).toContain(multilineUserPrompt);
+    expect(formatted).toContain('---');
+    expect(formatted).toMatch(
+      new RegExp(
+        `^${councillorPrompt.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          '\\$&',
+        )}\\n\\n---\\n\\n${multilineUserPrompt.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          '\\$&',
+        )}$`,
+      ),
+    );
   });
 });

@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { z } from 'zod';
 import {
   CouncilConfigSchema,
   type CouncillorConfig,
@@ -8,48 +7,69 @@ import {
 } from './council-schema';
 
 describe('CouncillorConfigSchema', () => {
-  test('accepts and preserves a scalar model ID with spaces', () => {
-    const result = CouncillorConfigSchema.safeParse({
-      model: 'of/MiniMax M3',
+  test('validates config with model and optional variant', () => {
+    const goodConfig: CouncillorConfig = {
+      model: 'openai/gpt-5.4-mini',
       variant: 'low',
-    });
+    };
+
+    const result = CouncillorConfigSchema.safeParse(goodConfig);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.model).toBe('of/MiniMax M3');
-      expect(result.data.variant).toBe('low');
-      // A single-model config normalizes to a one-entry chain.
-      expect(result.data.models).toEqual([
-        { id: 'of/MiniMax M3', variant: 'low' },
-      ]);
+      expect(result.data).toEqual(goodConfig);
     }
   });
 
-  test('preserves ordered mixed fallback entries with spaced model IDs', () => {
-    const result = CouncillorConfigSchema.safeParse({
-      model: [
-        'of/Kimi K2.6',
-        {
-          id: 'opencode-omniroute-live/of/Qwen3.8 27b',
-          variant: 'high',
+  test('accepts deprecated master fields and reports them', () => {
+    const config = {
+      master: { model: 'anthropic/claude-opus-4-6' },
+      master_timeout: 300000,
+      master_fallback: ['openai/gpt-5.5'],
+      presets: {
+        default: {
+          alpha: { model: 'openai/gpt-5.4-mini' },
         },
-      ],
-    });
+      },
+    };
+
+    const result = CouncilConfigSchema.safeParse(config);
     expect(result.success).toBe(true);
+
     if (result.success) {
-      // Primary model stays on `model` for backward compatibility.
-      expect(result.data.model).toBe('of/Kimi K2.6');
-      expect(result.data.models).toEqual([
-        { id: 'of/Kimi K2.6', variant: undefined },
-        {
-          id: 'opencode-omniroute-live/of/Qwen3.8 27b',
-          variant: 'high',
-        },
+      // Deprecated fields are stripped but reported via _deprecated
+      expect(result.data._deprecated).toEqual([
+        'master',
+        'master_timeout',
+        'master_fallback',
       ]);
+      // Core fields still work normally
+      expect(result.data.timeout).toBe(180000);
+      expect(Object.keys(result.data.presets.default)).toEqual(['alpha']);
+      // Legacy master.model is extracted for backward-compat fallback
+      expect(result.data._legacyMasterModel).toBe('anthropic/claude-opus-4-6');
+    }
+  });
+
+  test('no _deprecated when config has no deprecated fields', () => {
+    const config = {
+      presets: {
+        default: {
+          alpha: { model: 'openai/gpt-5.4-mini' },
+        },
+      },
+    };
+
+    const result = CouncilConfigSchema.safeParse(config);
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.data._deprecated).toBeUndefined();
+      expect(result.data._legacyMasterModel).toBeUndefined();
     }
   });
 });
 
-test('preset with legacy "master" key is rejected', () => {
+test('preset with only legacy "master" key results in empty councillors', () => {
   const config = {
     presets: {
       'master-only': {
@@ -59,16 +79,118 @@ test('preset with legacy "master" key is rejected', () => {
   };
 
   const result = CouncilConfigSchema.safeParse(config);
-  expect(result.success).toBe(false);
+  expect(result.success).toBe(true);
+
+  if (result.success) {
+    const preset = result.data.presets['master-only'];
+    expect(Object.keys(preset)).toEqual([]);
+  }
 });
 
-test('published schema rejects the legacy "master" preset key (propertyNames)', () => {
-  // Greptile P2: the rejection must be visible to editors, not just the
-  // loader — the key-level regex renders as propertyNames.pattern.
-  const generated = z.toJSONSchema(CouncilPresetSchema, { io: 'input' }) as {
-    propertyNames: { pattern?: string };
+test('unwraps legacy nested "councillors" key in preset', () => {
+  const config = {
+    presets: {
+      default: {
+        councillors: {
+          alpha: { model: 'openai/gpt-5.4-mini' },
+          beta: { model: 'openai/gpt-5.3-codex' },
+        },
+      },
+    },
   };
-  expect(generated.propertyNames.pattern).toBe('^(?!master$)');
+
+  const result = CouncilConfigSchema.safeParse(config);
+  expect(result.success).toBe(true);
+
+  if (result.success) {
+    const preset = result.data.presets.default;
+    expect(Object.keys(preset)).toEqual(['alpha', 'beta']);
+    expect(preset.alpha.model).toBe('openai/gpt-5.4-mini');
+    expect(preset.beta.model).toBe('openai/gpt-5.3-codex');
+  }
+});
+
+test('mixed legacy "councillors" and flat keys in same preset', () => {
+  const config = {
+    presets: {
+      mixed: {
+        councillors: {
+          alpha: { model: 'openai/gpt-5.4-mini' },
+        },
+        beta: { model: 'google/gemini-3-pro' },
+      },
+    },
+  };
+
+  const result = CouncilConfigSchema.safeParse(config);
+  expect(result.success).toBe(true);
+
+  if (result.success) {
+    const preset = result.data.presets.mixed;
+    expect(Object.keys(preset).sort()).toEqual(['alpha', 'beta']);
+  }
+});
+
+test('deprecated master with non-standard model ID still parses', () => {
+  const config = {
+    master: { model: 'claude-opus-4-6' }, // no provider/ prefix
+    master_timeout: 'fast', // not a number
+    master_fallback: 'all', // not an array
+    presets: {
+      default: {
+        alpha: { model: 'openai/gpt-5.4-mini' },
+      },
+    },
+  };
+
+  const result = CouncilConfigSchema.safeParse(config);
+  expect(result.success).toBe(true);
+
+  if (result.success) {
+    expect(result.data._deprecated).toEqual([
+      'master',
+      'master_timeout',
+      'master_fallback',
+    ]);
+    // Even non-standard model IDs are extracted as-is for backward compat
+    expect(result.data._legacyMasterModel).toBe('claude-opus-4-6');
+  }
+});
+
+test('legacyMasterModel undefined when master.model is not a string', () => {
+  const config = {
+    master: { model: 42 }, // not a string
+    presets: {
+      default: {
+        alpha: { model: 'openai/gpt-5.4-mini' },
+      },
+    },
+  };
+
+  const result = CouncilConfigSchema.safeParse(config);
+  expect(result.success).toBe(true);
+
+  if (result.success) {
+    expect(result.data._legacyMasterModel).toBeUndefined();
+  }
+});
+
+test('legacyMasterModel undefined when master is not an object', () => {
+  const config = {
+    master: 'oops', // not an object
+    presets: {
+      default: {
+        alpha: { model: 'openai/gpt-5.4-mini' },
+      },
+    },
+  };
+
+  const result = CouncilConfigSchema.safeParse(config);
+  expect(result.success).toBe(true);
+
+  if (result.success) {
+    expect(result.data._legacyMasterModel).toBeUndefined();
+  }
 });
 
 test('rejects empty model string', () => {
@@ -82,7 +204,7 @@ test('rejects empty model string', () => {
 
 test('accepts optional prompt field', () => {
   const config: CouncillorConfig = {
-    model: 'openai/gpt-6-luna',
+    model: 'openai/gpt-5.4-mini',
     prompt: 'Focus on security implications and edge cases.',
   };
 
@@ -97,7 +219,7 @@ test('accepts optional prompt field', () => {
 
 test('prompt is optional and defaults to undefined', () => {
   const config: CouncillorConfig = {
-    model: 'openai/gpt-6-luna',
+    model: 'openai/gpt-5.4-mini',
   };
 
   const result = CouncillorConfigSchema.safeParse(config);
@@ -111,7 +233,7 @@ describe('CouncilPresetSchema', () => {
   test('validates a named preset with multiple councillors', () => {
     const raw = {
       alpha: {
-        model: 'openai/gpt-6-luna',
+        model: 'openai/gpt-5.4-mini',
       },
       beta: {
         model: 'openai/gpt-5.3-codex',
@@ -132,7 +254,7 @@ describe('CouncilPresetSchema', () => {
   test('accepts preset with single councillor', () => {
     const raw = {
       solo: {
-        model: 'openai/gpt-6-luna',
+        model: 'openai/gpt-5.4-mini',
       },
     };
 
@@ -159,7 +281,7 @@ describe('CouncilConfigSchema', () => {
     const config = {
       presets: {
         default: {
-          alpha: { model: 'openai/gpt-6-luna' },
+          alpha: { model: 'openai/gpt-5.4-mini' },
           beta: { model: 'openai/gpt-5.3-codex' },
           gamma: { model: 'google/gemini-3-pro' },
         },
@@ -170,6 +292,8 @@ describe('CouncilConfigSchema', () => {
     expect(result.success).toBe(true);
 
     if (result.success) {
+      // Check defaults are filled in
+      expect(result.data.timeout).toBe(180000);
       expect(result.data.default_preset).toBe('default');
     }
   });
@@ -178,7 +302,7 @@ describe('CouncilConfigSchema', () => {
     const config = {
       presets: {
         custom: {
-          alpha: { model: 'openai/gpt-6-luna' },
+          alpha: { model: 'openai/gpt-5.4-mini' },
         },
       },
       default_preset: 'custom',
@@ -188,6 +312,7 @@ describe('CouncilConfigSchema', () => {
     expect(result.success).toBe(true);
 
     if (result.success) {
+      expect(result.data.timeout).toBe(180000);
       expect(result.data.default_preset).toBe('custom');
     }
   });
@@ -197,6 +322,38 @@ describe('CouncilConfigSchema', () => {
 
     const result = CouncilConfigSchema.safeParse(badConfig);
     expect(result.success).toBe(false);
+  });
+
+  test('rejects invalid timeout (negative)', () => {
+    const badConfig = {
+      presets: {
+        default: {
+          alpha: { model: 'openai/gpt-5.4-mini' },
+        },
+      },
+      timeout: -1000,
+    };
+
+    const result = CouncilConfigSchema.safeParse(badConfig);
+    expect(result.success).toBe(false);
+  });
+
+  test('accepts zero timeout values (no timeout)', () => {
+    const config = {
+      presets: {
+        default: {
+          alpha: { model: 'openai/gpt-5.4-mini' },
+        },
+      },
+      timeout: 0,
+    };
+
+    const result = CouncilConfigSchema.safeParse(config);
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.data.timeout).toBe(0);
+    }
   });
 
   test('rejects missing presets', () => {
@@ -214,18 +371,18 @@ describe('CouncilConfigSchema', () => {
     const config = {
       presets: {
         default: {
-          alpha: { model: 'openai/gpt-6-luna' },
+          alpha: { model: 'openai/gpt-5.4-mini' },
           beta: { model: 'openai/gpt-5.3-codex' },
         },
         fast: {
-          quick: { model: 'openai/gpt-6-luna', variant: 'low' },
+          quick: { model: 'openai/gpt-5.4-mini', variant: 'low' },
         },
         thorough: {
           detailed1: {
             model: 'anthropic/claude-opus-4-6',
             prompt: 'Provide detailed analysis with citations.',
           },
-          detailed2: { model: 'openai/gpt-6' },
+          detailed2: { model: 'openai/gpt-5.5' },
         },
       },
     };
@@ -243,14 +400,4 @@ describe('CouncilConfigSchema', () => {
       expect(thoroughPreset.detailed2.prompt).toBeUndefined();
     }
   });
-});
-
-test('rejects removed council.master* keys', () => {
-  for (const key of ['master', 'master_timeout', 'master_fallback']) {
-    const result = CouncilConfigSchema.safeParse({
-      presets: {},
-      [key]: {},
-    });
-    expect(result.success).toBe(false);
-  }
 });

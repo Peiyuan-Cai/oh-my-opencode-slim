@@ -1,16 +1,17 @@
 /**
  * Multiplexer module exports
- *
- * Pane lifecycle code (adapters, factory, client wiring) is client-side only:
- * the server entry must not import this barrel.
  */
 
-export type { CmuxClient, CommandRunner } from './cmux';
-export { CliCmuxClient, CmuxMultiplexer } from './cmux';
-export { getMultiplexer } from './factory';
-export { HerdrMultiplexer } from './herdr';
-export { KittyMultiplexer } from './kitty';
+export {
+  clearMultiplexerCache,
+  getMultiplexer,
+  startAvailabilityCheck,
+} from './factory';
+export {
+  MultiplexerSessionManager,
+  TmuxSessionManager,
+} from './session-manager';
 export { TmuxMultiplexer } from './tmux';
 export type { Multiplexer, PaneResult } from './types';
-export { WeztermMultiplexer } from './wezterm';
+export { isServerRunning } from './types';
 export { ZellijMultiplexer } from './zellij';

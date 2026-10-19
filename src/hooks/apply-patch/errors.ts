@@ -7,25 +7,20 @@ const APPLY_PATCH_ERROR_PREFIX: Record<ApplyPatchErrorKind, string> = {
   internal: 'apply_patch internal error',
 };
 
-const APPLY_PATCH_ERROR_CODE: Record<ApplyPatchErrorKind, ApplyPatchErrorCode> =
-  {
-    blocked: 'outside_workspace',
-    validation: 'malformed_patch',
-    verification: 'verification_failed',
-    internal: 'internal_unexpected',
-  };
-
 export class ApplyPatchError extends Error {
-  readonly code: ApplyPatchErrorCode;
+  override readonly cause?: unknown;
 
   constructor(
     readonly kind: ApplyPatchErrorKind,
+    readonly code: ApplyPatchErrorCode,
     message: string,
-    cause?: unknown,
+    options?: {
+      cause?: unknown;
+    },
   ) {
-    super(`${APPLY_PATCH_ERROR_PREFIX[kind]}: ${message}`, { cause });
+    super(`${APPLY_PATCH_ERROR_PREFIX[kind]}: ${message}`);
     this.name = 'ApplyPatchError';
-    this.code = APPLY_PATCH_ERROR_CODE[kind];
+    this.cause = options?.cause;
   }
 }
 
@@ -33,16 +28,89 @@ export function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function createApplyPatchBlockedError(
+  message: string,
+  cause?: unknown,
+): ApplyPatchError {
+  return new ApplyPatchError('blocked', 'outside_workspace', message, {
+    cause,
+  });
+}
+
+export function createApplyPatchValidationError(
+  message: string,
+  cause?: unknown,
+): ApplyPatchError {
+  return new ApplyPatchError('validation', 'malformed_patch', message, {
+    cause,
+  });
+}
+
+export function createApplyPatchVerificationError(
+  message: string,
+  cause?: unknown,
+): ApplyPatchError {
+  return new ApplyPatchError('verification', 'verification_failed', message, {
+    cause,
+  });
+}
+
+export function createApplyPatchInternalError(
+  message: string,
+  cause?: unknown,
+): ApplyPatchError {
+  return new ApplyPatchError('internal', 'internal_unexpected', message, {
+    cause,
+  });
+}
+
+export function isApplyPatchError(error: unknown): error is ApplyPatchError {
+  return error instanceof ApplyPatchError;
+}
+
+export function isApplyPatchBlockedError(error: unknown): boolean {
+  return isApplyPatchError(error) && error.kind === 'blocked';
+}
+
+export function isApplyPatchValidationError(error: unknown): boolean {
+  return isApplyPatchError(error) && error.kind === 'validation';
+}
+
+export function isApplyPatchVerificationError(error: unknown): boolean {
+  return isApplyPatchError(error) && error.kind === 'verification';
+}
+
+export function isApplyPatchInternalError(error: unknown): boolean {
+  return isApplyPatchError(error) && error.kind === 'internal';
+}
+
+export function getApplyPatchErrorDetails(error: unknown):
+  | {
+      kind: ApplyPatchErrorKind;
+      code: ApplyPatchErrorCode;
+      message: string;
+    }
+  | undefined {
+  if (!isApplyPatchError(error)) {
+    return undefined;
+  }
+
+  return {
+    kind: error.kind,
+    code: error.code,
+    message: error.message,
+  };
+}
+
 export function ensureApplyPatchError(
   error: unknown,
   context: string,
 ): ApplyPatchError {
-  if (error instanceof ApplyPatchError) {
+  if (isApplyPatchError(error)) {
     return error;
   }
 
-  return new ApplyPatchError(
-    'internal',
+  return createApplyPatchInternalError(
     `${context}: ${getErrorMessage(error)}`,
     error,
   );

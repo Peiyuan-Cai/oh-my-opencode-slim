@@ -19,7 +19,6 @@ function isPwshAvailable(): boolean {
   if (process.platform !== 'win32') return false;
   const result = spawnSync('where', ['pwsh'], {
     stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
   });
   return result.status === 0;
 }

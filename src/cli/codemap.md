@@ -1,213 +1,77 @@
-# src/cli/
+# CLI Module Codemap
 
 ## Responsibility
 
-CLI entry point and command-line interface for the oh-my-opencode-slim plugin. Provides installation, configuration, and diagnostic commands for setting up and managing the OpenCode plugin. Manages agent skill installation, configuration generation, and shell integration for background subagents.
+`src/cli/` provides the plugin installation workflow and the utilities that generate and persist runtime configuration.
+
+Current responsibilities:
+
+- parse/install command arguments
+- install-time validation and environment checks
+- OpenCode configuration mutation (atomic)
+- lite config generation for provider/agent presets
+- optional skill installation and bundled-skill copying
 
 ## Design
 
-The CLI follows a command pattern with two primary commands:
-- `install`: Sets up the plugin with OpenCode (adds plugin to config, configures background subagents, installs companion, writes configuration)
-- `doctor`: Diagnoses plugin configuration issues and validates setup
+### Command surface
 
-### Architecture Pattern: Command Router
+- `src/cli/index.ts` only dispatches:
+  - `install` subcommand and flags
+    - `--skills=yes|no`
+    - `--preset=<name>`
+    - `--no-tui`
+    - `--dry-run`
+    - `--reset`
+    - `--help`
 
-- **index.ts**: Routes CLI arguments to appropriate command handlers (install/doctor)
-- **install.ts**: Orchestrates multi-step installation workflow
-- **doctor.ts**: Validates configuration and environment (includes multiplexer validation)
-- **types.ts**: Shared CLI argument types (`InstallArgs`, `BooleanArg`, `SkillsArg`, `CompanionArg`, `OpenCodeConfig`, `InstallConfig`)
+The CLI is intentionally non-interactive-only now; it prints usage and steps to stdout with exit codes.
 
-### Configuration Management Pattern
+### Module decomposition
 
-- **config-manager.ts**: Barrel re-exporting `config-io`, `paths`, `providers`, and `system` for a single import surface
-- **config-io.ts**: Handles reading, parsing, and writing configuration files (supports both .json and .jsonc)
-- **paths.ts**: Resolves configuration file paths across different environments (XDG_CONFIG_HOME, custom paths, defaults)
-- **providers.ts**: Generates configuration presets and manages model mappings for different providers
-- **system.ts**: Resolves the `opencode` binary path (Windows-aware `where`/`which` + shell handling) and related system checks
-
-### Permission and Skill Management
-
-- **custom-skills.ts**: Registry of custom skills bundled with the plugin and their installation logic
-- **skills.ts**: Agent permission management for skills (allow/ask/deny rules, includes PERMISSION_ONLY_SKILLS for externally managed skills)
-
-### Integration Management
-
-- **background-subagents.ts**: Shell integration for OpenCode background subagents (persistent agent processes)
-- **companion.ts**: Desktop companion binary installation and management
+- `paths.ts`: config directory and file discovery (`opencode.json`/`.jsonc`, lite config path).
+- `config-io.ts`: JSON/JSONC parsing, normalize write behavior, atomic writes (`.tmp` + `.bak`), plugin registration, default-agent disabling.
+- `providers.ts`: provider model mapping + `generateLiteConfig()`.
+- `system.ts`: OpenCode binary/version/path checks.
+- `skills.ts`: bundled and permission-only skill permission defaults.
+- `custom-skills.ts`: bundled skill registry and copy-to-config-directory implementation.
+- `config-manager.ts`: re-export barrel for CLI config utilities.
+- `install.ts`: end-to-end install orchestration and console messaging.
+- `types.ts`: install/config DTOs.
 
 ## Flow
 
-### Command Flow: CLI Entry Point
-
-```
-1. CLI invoked (bunx oh-my-opencode-slim install/doctor)
-2. index.ts parses arguments and routes to command handler
-3. Command handler executes workflow
-   - install: Runs multi-step installation process
-   - doctor: Runs diagnostic checks
-```
-
-### Installation Workflow (install.ts)
-
-```
-1. Parse install arguments (preset, companion mode, background subagents, etc.)
-2. Check OpenCode installation
-3. Add plugin to OpenCode configuration (opencode.json/opencode.jsonc)
-4. Add TUI version badge (tui.json/tui.jsonc)
-5. Warm OpenCode plugin cache (for package manager installations)
-6. Enable LSP integration by default
-7. Configure background subagents (shell integration)
-8. Install desktop companion (optional)
-9. Write oh-my-opencode-slim configuration (oh-my-opencode-slim.json)
-10. Install custom skills (if requested)
+```text
+CLI install command
+  └─> install.ts (runInstall)
+      1) check OpenCode installed
+      2) add plugin entry to main OpenCode config
+      3) disable legacy default agents
+      4) write/preview generated lite config
+      5) optional install phase:
+         - installCustomSkill(...) for each CUSTOM_SKILL
 ```
 
-OpenCode's built-in `general`/`explore` subagents are disabled at runtime by
-the plugin itself (#1582); the installer no longer writes config entries.
+`generateLiteConfig(installConfig)` behavior:
 
-### Configuration Resolution Flow (paths.ts)
+- sets `$schema`, a selected `preset` that defaults to `openai`
+- always materializes generated presets `openai` and `opencode-go`
+- install-time `--preset` only selects between generated presets
+- maps each built-in agent name to provider-specific model/variant
+- injects skill list from bundled custom skill registries
+- injects default MCP sets from `DEFAULT_AGENT_MCPS`
+- includes tmux block (`layout`, `main_pane_size`) when enabled
 
-```
-1. Determine config directory:
-   - OPENCODE_CONFIG_DIR environment variable (highest priority)
-   - XDG_CONFIG_HOME/opencode
-   - ~/.config/opencode (default)
-2. Resolve file paths:
-   - opencode.json → opencode.jsonc → fallback to opencode.json
-   - oh-my-opencode-slim.json → oh-my-opencode-slim.jsonc → fallback
-   - tui.json → tui.jsonc → fallback
-```
+`writeLiteConfig()` writes target file atomically and supports `--reset`/dry-run branching in `install.ts`.
 
-### Configuration Generation Flow (providers.ts)
+## Runtime integration
 
-```
-1. Generate configuration presets for supported providers:
-   - openai (default)
-   - opencode-go
-   - kimi
-   - copilot
-   - zai-plan
-2. Map agents to models with variants:
-   - orchestrator → high-capacity model
-   - oracle → high variant
-   - explorer → low variant
-   - designer → medium variant
-   - fixer → low variant
-3. Apply skill permissions based on agent role
-4. Generate final configuration with schema URL
-```
+- Output file produced by install (`oh-my-opencode-slim.json`) is consumed by runtime `config/loader.ts`.
+- Permission defaults for installed/available skills are shared with `agents/index.ts` via `cli/skills.ts`.
+- Generated provider/multiplexer settings are consumed by OpenCode session runtime via `src/index.ts` bootstrap.
 
-### Background Subagents Integration (background-subagents.ts)
+## Notes for architecture/docs accuracy
 
-```
-1. Detect shell type (bash/zsh/fish)
-2. Determine target file:
-   - bash/zsh: ~/.bashrc or ~/.zshrc
-   - fish: ~/.config/fish/conf.d/opencode-background-subagents.fish
-3. Write environment variable export:
-   - export OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true
-4. Persist across shell sessions
-```
-
-### Doctor Diagnostics Flow (doctor.ts)
-
-```
-1. Parse command line arguments
-2. Check user and project configuration files exist and are valid JSON/JSONC
-3. Load and validate agent preset configurations
-4. Validate schema compliance for all configuration files
-5. Perform multiplexer-specific validation (collectMultiplexerIssues)
-6. Generate human-readable or JSON-formatted diagnostic reports
-```
-
-### Skill Permissions Flow (skills.ts)
-
-```
-1. Resolve agent skill permissions based on:
-   - Default granted skills per agent type (getDefaultGrantedSkillNames)
-   - User-configured skill lists (skillList parameter)
-   - Disabled skills (disabledSkillNames parameter)
-2. Build effective permissions using skill directives:
-   - Base skills + added skills - removed skills (resolveEffectiveSkills)
-3. Return permission grants as 'allow' | 'ask' | 'deny' for each skill
-```
-
-## Integration
-
-### Consumed By
-
-- **Main plugin**: src/index.ts loads CLI entry point via plugin initialization
-- **OpenCode**: CLI commands are invoked by OpenCode's plugin system
-
-### Dependencies
-
-- **Config system**: src/config/ - Configuration loading and validation
-- **Skills**: src/skills/ - Bundled custom skills registry
-- **Companion**: src/companion/ - Desktop companion binary management
-- **Utils**: src/utils/ - Cross-platform compatibility utilities
-
-### Integration Points
-
-- **OpenCode plugin system**: CLI commands integrate via OpenCode's command execution
-- **Shell environment**: Background subagents modify shell startup files
-- **Configuration files**: Atomic writes to user config directory (~/.config/opencode/)
-- **Desktop companion**: Optional binary installation and configuration
-
-### Permission Model
-
-- **Orchestrator agent**: Granted all skills by default
-- **Other agents**: Restricted permissions, explicit allow rules from custom skills registry
-- **External skills**: Permission-only entries for skills not installed by CLI (`PERMISSION_ONLY_SKILLS` array)
-
-### Configuration Files
-
-| File | Purpose | Written By |
-|------|---------|------------|
-| opencode.json/opencode.jsonc | OpenCode main config | config-io.ts |
-| tui.json/tui.jsonc | OpenCode TUI config | config-io.ts |
-| oh-my-opencode-slim.json | Plugin-specific config | providers.ts |
-
-## Commands
-
-### `install` Command
-
-Sets up oh-my-opencode-slim plugin with OpenCode.
-
-**Usage:**
-```bash
-bunx oh-my-opencode-slim install [OPTIONS]
-```
-
-**Options:**
-- `--skills=yes|no`: Install bundled skills (default: yes)
-- `--companion=ask|yes|no`: Install desktop companion (default: ask)
-- `--preset=<name>`: Select configuration preset (default: openai)
-- `--background-subagents=ask|yes|no`: Configure background subagents (default: ask)
-- `--background-subagents-target=<path>`: Specify shell startup file
-- `--no-tui`: Non-interactive mode
-- `--dry-run`: Simulate installation
-- `--reset`: Force overwrite existing configuration
-- `-h, --help`: Show help
-
-**Available presets:** openai, opencode-go, kimi, copilot, zai-plan
-
-### `doctor` Command
-
-Diagnoses plugin configuration and environment.
-
-**Usage:**
-```bash
-bunx oh-my-opencode-slim doctor [OPTIONS]
-```
-
-**Options:**
-- `--json`: Print diagnostics as JSON
-- `-h, --help`: Show help
-
-**Checks:**
-- Configuration file validity (user and project scopes)
-- Preset existence and configuration
-- JSON schema validation
-- File existence and permissions
-- Multiplexer block validation
-- Agent skill permissions
+- The previous TUI references are stale; no dedicated interactive flow exists in current sources.
+- `--skills` controls bundled/custom skill installation only.
+- Built-in preset support includes `openai`, `opencode-go`, `kimi`, `copilot`, and `zai-plan`.

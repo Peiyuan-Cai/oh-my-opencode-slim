@@ -2,13 +2,6 @@
 
 ## Responsibility
 
-- `patch.ts` applies unified diffs to the current spec body; `history.ts`
-  collapses the older kickoff copy for active interviews.
-- `service.ts` handles quiet state turns, consumed-state dedupe, one patch repair
-  prompt, turn status notices, and `/implement` with newest-complete fallback.
-- `../tools/interview-submit-state.ts` is the static quiet submission tool;
-  primary agents may use it and subagents are denied by permission projection.
-
 - Implement the `/interview` command flow:
   - command registration and pre-exec interception,
   - interactive stateful interview prompts,
@@ -26,31 +19,17 @@
 
 - `index.ts` exports `createInterviewManager`.
 
-- `runtime.ts` defines the interview-only session boundary (`messages`,
-  `notify`, `continue`, and `rename`). v1 uses nested SDK calls
-  (`createV1InterviewSessionRuntime`); v2 supplies a context-backed
-  implementation without expanding the global client shim.
-
 - `manager.ts` (composition root)
-  - Chooses mode via the shared pure `computeInterviewMode` (also used by the
-    v2 interview bridge): `interview.dashboard === true || interview.port > 0`:
-    - per-session mode → `createPerSessionInterviewServer` (`session-server.ts`)
-    - dashboard mode → `createDashboardManager` (`dashboard-manager.ts`)
+  - Creates `createInterviewService(ctx, interviewConfig)` once.
+  - Chooses mode via
+    `interview.dashboard === true || interview.port > 0`.
+  - In dashboard mode:
+    - calls `tryBecomeDashboard(...)` to elect one process as dashboard,
+    - non-dashboard processes read auth token via `readDashboardAuthFile(port)`,
+    - sessions are registered with `/api/register` and sync state back via `/api/interviews/{id}/state`,
+    - 10-second fallback polling keeps answer/nudge delivery active if needed.
   - Returns event hooks:
-    `registerCommand`, `handleCommandExecuteBefore`, `handleEvent`, `dispose`.
-
-- `session-server.ts`
-  - Per-session composition: binds a lazy `createInterviewServer({ port: 0 })`
-    to a single `createInterviewService`, wiring command/event hooks and
-    cleanup.
-
-- `dashboard-manager.ts`
-  - Dashboard composition: creates the dashboard server and service, calls
-    `tryBecomeDashboard(...)` to elect one process as dashboard,
-    non-dashboard processes read auth token via `readDashboardAuthFile(port)`,
-    registers/unregisters sessions over HTTP, and pushes state back via
-    `/api/interviews/{id}/state`; 10-second fallback polling keeps
-    answer/nudge delivery active if needed.
+    `registerCommand`, `handleCommandExecuteBefore`, `handleEvent`.
 
 - `createInterviewService` (`service.ts`)
   - Manages interview domain maps:
@@ -75,21 +54,13 @@
     - optional `openBrowser` for initial UI open.
 
 - `createInterviewServer` (`server.ts`)
-  - Owns the per-session HTTP endpoints; HTML rendering lives in `ui.ts`.
-  - `createInterviewServerDeps(service, outputFolder, port)` builds the
-    service-delegating deps object shared by the per-session server, the
-    dashboard fallback server, and the v2 interview bridge.
+  - Owns the per-session HTTP endpoints and HTML renderer binding.
   - Supports:
     - `GET /`, `GET /api/interviews`, `GET /interview/{id}`
     - `GET /api/interviews/{id}/state`
     - `POST /api/interviews/{id}/answers`
     - `POST /api/interviews/{id}/nudge`
   - Maps domain errors to HTTP status in `getSubmissionStatus`.
-
-- `ui.ts`
-  - HTML/JS renderers for interview pages (list/detail), shared
-    client-side helpers (clipboard, polling), and the dashboard brand UI;
-    uses `escapeHtml` from `src/utils/escape-html.ts`.
 
 - `dashboard.ts`
   - Implements a shared dashboard server and state cache.
@@ -109,7 +80,7 @@
 - Supporting modules:
   - `document.ts`: markdown/file helpers (`slugify`, path resolution, frontmatter,
     title/summary extraction).
-  - `parser.ts`: assistant state parse pipeline (`parseAssistantState`,
+  - `parser.ts`: assistant state parse pipeline (`parseInterviewState`,
     `findLatestAssistantState`, `buildFallbackState`).
   - `prompts.ts`: prompt templates for create/resume/answer/nudge.
   - `helpers.ts`: request parsing and HTML/JSON response helpers.
@@ -140,8 +111,7 @@
 
 - `handleCommandExecuteBefore`
   - blank input with no active interview starts ideation,
-  - matching slug/path resumes an existing interview only for its durable
-    frontmatter owner session,
+  - matching slug/path resumes an existing interview,
   - otherwise creates a new interview and injects kickoff prompt.
 
 - `handleEvent`
@@ -161,23 +131,3 @@
   - manual file/discovery settings.
 - Existing tests cover service, parser, manager, server, dashboard, and helpers
   under `src/interview/*.test.ts`.
-- `test-port.ts` provides test-only port binding infrastructure for dashboard
-  mode testing, holding ports and failing fast on health probes to prevent
-  TOCTOU windows between port discovery and real server binding.
-
-## Repaired lifecycle details
-
-- The interview-only `runtime.ts` boundary owns message reads, notifications,
-  orchestrator continuation, and session rename operations. The v2 bridge uses
-  this boundary instead of expanding the global client shim.
-- After `confirm-complete`, the next clean assistant response is persisted with
-  `rewriteInterviewDocumentWithFinalSpec` only after an idle/text-ended
-  completion event; a stream prefix cannot overwrite the final markdown.
-- Dashboard clients register at `/api/register`, unregister at
-  `/api/unregister`, and receive `202 {"status":"queued"}` for deferred
-  browser submissions. Session polling claims each queued value and must
-  acknowledge it after service delivery; rejected deliveries roll the claim
-  back without clearing the answer, chat message, block comment, or nudge.
-- Markdown documents persist their owning `sessionID` in frontmatter. A
-  different session cannot resume or mutate an owned document, while the
-  original session can resume it across plugin processes.

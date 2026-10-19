@@ -1,18 +1,10 @@
 import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import {
-  detectBackgroundSubagentsTarget,
-  expandHomePath,
-  getBackgroundSubagentsBlock,
-  isBackgroundSubagentsEnabled,
-  manualBackgroundSubagentsInstructions,
-  writeBackgroundSubagentsBlock,
-} from './background-subagents';
-import { installCompanion } from './companion';
-import {
   addPluginToOpenCodeConfig,
   addPluginToOpenCodeTuiConfig,
   detectCurrentConfig,
+  disableDefaultAgents,
   enableLspByDefault,
   generateLiteConfig,
   getOpenCodePath,
@@ -21,6 +13,7 @@ import {
   warmOpenCodePluginCache,
   writeLiteConfig,
 } from './config-manager';
+import { CUSTOM_SKILLS, installCustomSkill } from './custom-skills';
 import { getExistingLiteConfigPath } from './paths';
 import type { ConfigMergeResult, InstallArgs, InstallConfig } from './types';
 
@@ -43,7 +36,7 @@ const SYMBOLS = {
   star: `${YELLOW}★${RESET}`,
 };
 
-const GITHUB_REPO = 'alvinunreal/oh-my-opencode-slim';
+const GITHUB_REPO = 'Peiyuan-Cai/oh-my-opencode-slim';
 const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
 
 function printHeader(isUpdate: boolean): void {
@@ -65,10 +58,6 @@ function printSuccess(message: string): void {
 
 function printError(message: string): void {
   console.log(`${SYMBOLS.cross} ${RED}${message}${RESET}`);
-}
-
-function printWarning(message: string): void {
-  console.log(`${SYMBOLS.warn} ${YELLOW}${message}${RESET}`);
 }
 
 function printInfo(message: string): void {
@@ -122,32 +111,15 @@ async function checkOpenCodeInstalled(): Promise<{
 }> {
   const installed = await isOpenCodeInstalled();
   if (!installed) {
-    const isWindows = process.platform === 'win32';
     printError('OpenCode is not installed on this system.');
     printInfo('Install it with:');
-    if (isWindows) {
-      console.log(
-        `     ${BLUE}powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://opencode.ai/install.ps1 | iex"${RESET}`,
-      );
-      console.log();
-      printInfo('Or with winget:');
-      console.log(`     ${BLUE}winget install opencode${RESET}`);
-      console.log();
-      printInfo('Or if already installed, add it to your PATH:');
-      console.log(
-        `     ${BLUE}setx PATH "%PATH%;%LOCALAPPDATA%\\Programs\\opencode"${RESET}`,
-      );
-    } else {
-      console.log(
-        `     ${BLUE}curl -fsSL https://opencode.ai/install | bash${RESET}`,
-      );
-      console.log();
-      printInfo('Or if already installed, add it to your PATH:');
-      console.log(`     ${BLUE}export PATH="$HOME/.local/bin:$PATH"${RESET}`);
-      console.log(
-        `     ${BLUE}export PATH="$HOME/.opencode/bin:$PATH"${RESET}`,
-      );
-    }
+    console.log(
+      `     ${BLUE}curl -fsSL https://opencode.ai/install | bash${RESET}`,
+    );
+    console.log();
+    printInfo('Or if already installed, add it to your PATH:');
+    console.log(`     ${BLUE}export PATH="$HOME/.local/bin:$PATH"${RESET}`);
+    console.log(`     ${BLUE}export PATH="$HOME/.opencode/bin:$PATH"${RESET}`);
     return { ok: false };
   }
   const version = await getOpenCodeVersion();
@@ -156,134 +128,6 @@ async function checkOpenCodeInstalled(): Promise<{
   const pathInfo = path ? ` (${DIM}${path}${RESET})` : '';
   printSuccess(`OpenCode ${detectedVersion} detected${pathInfo}`);
   return { ok: true, version: version ?? undefined, path: path ?? undefined };
-}
-
-export async function configureBackgroundSubagents(
-  config: InstallConfig,
-): Promise<{ enabledNow: boolean; configuredTarget?: string }> {
-  const backgroundSubagentsEnabled = isBackgroundSubagentsEnabled(
-    process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS,
-  );
-  const exaEnabled = ['true', '1'].includes(
-    process.env.OPENCODE_ENABLE_EXA?.toLowerCase() ?? '',
-  );
-  if (backgroundSubagentsEnabled && exaEnabled) {
-    printSuccess(
-      'OpenCode background subagents and Exa websearch already enabled in environment',
-    );
-    return { enabledNow: true };
-  }
-
-  const target =
-    config.backgroundSubagentsTarget !== undefined
-      ? expandHomePath(config.backgroundSubagentsTarget)
-      : detectBackgroundSubagentsTarget();
-
-  if (config.backgroundSubagents === 'no') {
-    printInfo('OpenCode background subagents shell setup skipped.');
-    console.log(manualBackgroundSubagentsInstructions({ targetPath: target }));
-    return { enabledNow: false };
-  }
-
-  if (!target) {
-    printInfo('No safe shell startup file detected.');
-    console.log(manualBackgroundSubagentsInstructions());
-    return { enabledNow: false };
-  }
-
-  const block = getBackgroundSubagentsBlock(target);
-
-  if (config.dryRun) {
-    printInfo(
-      'Dry run mode - background subagents block that would be written:',
-    );
-    console.log(`Target: ${target}`);
-    console.log(`\n${block}\n`);
-    return { enabledNow: false, configuredTarget: target };
-  }
-
-  if (config.backgroundSubagents === 'ask') {
-    if (!process.stdin.isTTY) {
-      printInfo('Skipped background subagents shell setup in non-TTY mode.');
-      console.log(
-        manualBackgroundSubagentsInstructions({ targetPath: target }),
-      );
-      return { enabledNow: false };
-    }
-
-    console.log();
-    printInfo(
-      'V2 requires OpenCode background subagents for default orchestration.',
-    );
-    printInfo(
-      `The installer can add the required environment exports to ${target}.`,
-    );
-    const shouldWrite = await confirm(
-      'Enable background subagents and Exa websearch now?',
-      true,
-    );
-    if (!shouldWrite) {
-      printInfo('Skipped background subagents shell setup.');
-      console.log(
-        manualBackgroundSubagentsInstructions({ targetPath: target }),
-      );
-      return { enabledNow: false };
-    }
-  }
-
-  try {
-    writeBackgroundSubagentsBlock(target);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    printError(`Could not write background subagents shell config: ${message}`);
-    printInfo('Add the setting manually instead:');
-    console.log(manualBackgroundSubagentsInstructions({ targetPath: target }));
-    return { enabledNow: false };
-  }
-
-  printSuccess(
-    `Background subagents and Exa websearch enabled ${SYMBOLS.arrow} ${DIM}${target}${RESET}`,
-  );
-  return { enabledNow: false, configuredTarget: target };
-}
-
-export async function shouldInstallCompanion(
-  config: InstallConfig,
-): Promise<boolean> {
-  if (config.companion === 'yes') {
-    return true;
-  }
-  if (config.companion === 'no') return false;
-
-  if (config.dryRun) {
-    printInfo(
-      'Dry run mode - would ask to install the desktop companion (default: no).',
-    );
-    config.companion = 'no';
-    return false;
-  }
-
-  if (!process.stdin.isTTY) {
-    printInfo(
-      'Skipped desktop companion prompt in non-TTY mode. Use --companion=yes to install it.',
-    );
-    config.companion = 'no';
-    return false;
-  }
-
-  console.log();
-  printInfo('The optional desktop companion shows live agent activity.');
-  const shouldInstall = await confirm(
-    'Install and enable the desktop companion?',
-    false,
-  );
-  config.companion = shouldInstall ? 'yes' : 'no';
-
-  if (!shouldInstall) {
-    printInfo('Desktop companion install skipped.');
-  }
-
-  return shouldInstall;
 }
 
 function handleStepResult(
@@ -300,30 +144,14 @@ function handleStepResult(
   return true;
 }
 
-function handleOptionalCompanionResult(result: ConfigMergeResult): void {
-  if (result.success) {
-    printSuccess(
-      `Companion installed ${SYMBOLS.arrow} ${DIM}${result.configPath}${RESET}`,
-    );
-    return;
-  }
-
-  printWarning(`Desktop companion install skipped: ${result.error}`);
-  printInfo(
-    'The desktop companion is optional; continuing plugin installation without it.',
-  );
-}
-
 async function runInstall(config: InstallConfig): Promise<number> {
   const detected = detectCurrentConfig();
   const isUpdate = detected.isInstalled;
 
   printHeader(isUpdate);
 
-  const companionInstall = await shouldInstallCompanion(config);
-
   let totalSteps = 6;
-  if (companionInstall) totalSteps += 1;
+  if (config.installCustomSkills) totalSteps += 1;
   totalSteps += 1;
 
   let step = 1;
@@ -369,22 +197,20 @@ async function runInstall(config: InstallConfig): Promise<number> {
     }
   }
 
+  printStep(step++, totalSteps, 'Disabling OpenCode default agents...');
+  if (config.dryRun) {
+    printInfo('Dry run mode - skipping agent disabling');
+  } else {
+    const agentResult = disableDefaultAgents();
+    if (!handleStepResult(agentResult, 'Default agents disabled')) return 1;
+  }
+
   printStep(step++, totalSteps, 'Enabling OpenCode LSP integration...');
   if (config.dryRun) {
     printInfo('Dry run mode - skipping LSP configuration');
   } else {
     const lspResult = enableLspByDefault();
     if (!handleStepResult(lspResult, 'LSP enabled')) return 1;
-  }
-
-  printStep(step++, totalSteps, 'Configuring OpenCode background subagents...');
-  const backgroundSubagents = await configureBackgroundSubagents(config);
-
-  if (companionInstall) {
-    printStep(step++, totalSteps, 'Installing desktop companion binary...');
-    const companionResult = await installCompanion(config);
-    handleOptionalCompanionResult(companionResult);
-    if (!companionResult.success) config.companion = 'no';
   }
 
   printStep(step++, totalSteps, 'Writing oh-my-opencode-slim configuration...');
@@ -416,6 +242,32 @@ async function runInstall(config: InstallConfig): Promise<number> {
     }
   }
 
+  // Install custom skills if requested
+  if (config.installCustomSkills) {
+    printStep(step++, totalSteps, 'Installing custom skills...');
+    if (config.dryRun) {
+      printInfo('Dry run mode - would install custom skills:');
+      for (const skill of CUSTOM_SKILLS) {
+        printInfo(`  - ${skill.name}`);
+      }
+    } else {
+      let customSkillsInstalled = 0;
+      for (const skill of CUSTOM_SKILLS) {
+        printInfo(`Installing ${skill.name}...`);
+        if (installCustomSkill(skill)) {
+          printSuccess(`Installed: ${skill.name}`);
+          customSkillsInstalled++;
+        } else {
+          printInfo(`Skipped: ${skill.name} (already installed)`);
+        }
+      }
+      const totalCustom = CUSTOM_SKILLS.length;
+      printSuccess(
+        `${customSkillsInstalled}/${totalCustom} custom skills processed`,
+      );
+    }
+  }
+
   const statusMsg = isUpdate
     ? 'Configuration updated!'
     : 'Installation complete!';
@@ -436,21 +288,7 @@ async function runInstall(config: InstallConfig): Promise<number> {
   console.log(`     ${BLUE}${configPath}${RESET}`);
   console.log();
   console.log('  4. Start OpenCode:');
-  if (backgroundSubagents.enabledNow) {
-    console.log(`     ${BLUE}$ opencode${RESET}`);
-  } else if (backgroundSubagents.configuredTarget) {
-    console.log(
-      `     ${BLUE}$ source ${backgroundSubagents.configuredTarget}${RESET}`,
-    );
-    console.log(`     ${BLUE}$ opencode${RESET}`);
-    console.log(
-      `     ${DIM}Or restart your terminal before running opencode.${RESET}`,
-    );
-  } else {
-    console.log(
-      `     ${BLUE}$ OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true OPENCODE_ENABLE_EXA=1 opencode${RESET}`,
-    );
-  }
+  console.log(`     ${BLUE}$ opencode${RESET}`);
   console.log();
   console.log('  5. Verify the agents are responding:');
   console.log(`     ${BLUE}> ping all agents${RESET}`);
@@ -464,8 +302,8 @@ async function runInstall(config: InstallConfig): Promise<number> {
   const altProviders = 'For the full configuration reference, see:';
   console.log(altProviders);
   const docsUrl =
-    'https://github.com/alvinunreal/oh-my-opencode-slim/' +
-    'blob/master/docs/configuration.md';
+    'https://github.com/Peiyuan-Cai/oh-my-opencode-slim/' +
+    'blob/feat/opencode-v2-compat/docs/configuration.md';
   console.log(`  ${BLUE}${docsUrl}${RESET}`);
   console.log();
 
@@ -476,13 +314,12 @@ async function runInstall(config: InstallConfig): Promise<number> {
 
 export async function install(args: InstallArgs): Promise<number> {
   const config: InstallConfig = {
+    hasTmux: false,
+    installCustomSkills: args.skills === 'yes',
     preset: args.preset,
     promptForStar: args.tui,
     dryRun: args.dryRun,
     reset: args.reset ?? false,
-    backgroundSubagents: args.backgroundSubagents ?? 'ask',
-    backgroundSubagentsTarget: args.backgroundSubagentsTarget,
-    companion: args.companion,
   };
 
   return runInstall(config);

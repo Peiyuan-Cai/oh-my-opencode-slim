@@ -2,21 +2,29 @@ import type { Stats } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { normalizeLineEndings, parsePatch } from './codec';
-import { ApplyPatchError, getErrorMessage } from './errors';
-import { resolveUpdate } from './resolution';
+import { parsePatchStrict } from './codec';
+import {
+  createApplyPatchBlockedError,
+  createApplyPatchInternalError,
+  createApplyPatchValidationError,
+  createApplyPatchVerificationError,
+  getErrorMessage,
+} from './errors';
+import { applyHits, resolveUpdateChunksFromText } from './resolution';
 import type {
-  AddPatchHunk,
-  DeletePatchHunk,
+  ApplyPatchRuntimeOptions,
   PatchHunk,
   UpdatePatchHunk,
 } from './types';
 
 type PathGuardContext = {
-  root: string;
-  rootReal?: Promise<string>;
-  worktree?: string;
+  rootReal: Promise<string>;
   worktreeReal?: Promise<string>;
+  realCache: Map<string, Promise<string>>;
+};
+
+type FileCacheContext = {
+  stats: Map<string, Promise<Stats | null>>;
 };
 
 export type PreparedFileState =
@@ -27,22 +35,8 @@ export type PreparedFileState =
   | {
       exists: true;
       text: string;
+      mode?: number;
       derived: boolean;
-    };
-
-type ExistingFileState = Extract<PreparedFileState, { exists: true }>;
-
-export type SimulatedStep =
-  | { type: 'add'; hunk: AddPatchHunk; filePath: string; finalText: string }
-  | { type: 'delete'; hunk: DeletePatchHunk; filePath: string }
-  | {
-      type: 'update';
-      hunk: UpdatePatchHunk;
-      filePath: string;
-      movePath?: string;
-      current: ExistingFileState;
-      resolved: ResolvedPreparedUpdate['resolved'];
-      nextText: string;
     };
 
 export type PatchExecutionContext = {
@@ -52,7 +46,7 @@ export type PatchExecutionContext = {
   getPreparedFileState: (
     filePath: string,
     verb: 'update' | 'delete',
-  ) => Promise<ExistingFileState>;
+  ) => Promise<PreparedFileState>;
   assertPreparedPathMissing: (
     filePath: string,
     verb: 'add' | 'move',
@@ -60,7 +54,7 @@ export type PatchExecutionContext = {
 };
 
 export type ResolvedPreparedUpdate = {
-  resolved: ReturnType<typeof resolveUpdate>['resolved'];
+  resolved: Awaited<ReturnType<typeof resolveUpdateChunksFromText>>['resolved'];
   nextText: string;
 };
 
@@ -83,8 +77,7 @@ async function real(target: string): Promise<string> {
         return null;
       }
 
-      throw new ApplyPatchError(
-        'internal',
+      throw createApplyPatchInternalError(
         `Failed to resolve real path: ${current}`,
         error,
       );
@@ -107,42 +100,95 @@ async function real(target: string): Promise<string> {
 
 function inside(root: string, target: string): boolean {
   const rel = path.relative(root, target);
-  return (
-    rel === '' ||
-    (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel))
-  );
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function createPathGuardContext(
+  root: string,
+  worktree: string | undefined,
+): PathGuardContext {
+  return {
+    rootReal: real(root),
+    worktreeReal: worktree && worktree !== '/' ? real(worktree) : undefined,
+    realCache: new Map(),
+  };
+}
+
+async function realCached(
+  ctx: PathGuardContext,
+  target: string,
+): Promise<string> {
+  const resolvedTarget = path.resolve(target);
+  let pending = ctx.realCache.get(resolvedTarget);
+  if (!pending) {
+    pending = real(resolvedTarget);
+    ctx.realCache.set(resolvedTarget, pending);
+  }
+
+  return await pending;
 }
 
 async function guard(ctx: PathGuardContext, target: string): Promise<void> {
-  const targetReal = await real(target);
-  // Both resolutions are lazy: whichever rejects first is observed here,
-  // and the other is never created, so no promise is left unhandled.
-  ctx.rootReal ??= real(ctx.root);
-  if (inside(await ctx.rootReal, targetReal)) {
+  const [targetReal, rootReal] = await Promise.all([
+    realCached(ctx, target),
+    ctx.rootReal,
+  ]);
+  if (inside(rootReal, targetReal)) {
     return;
   }
 
-  // Resolve the worktree lazily, without an unobserved promise on root hits.
-  if (ctx.worktree && ctx.worktree !== '/') {
-    ctx.worktreeReal ??= real(ctx.worktree);
-    if (inside(await ctx.worktreeReal, targetReal)) return;
+  if (!ctx.worktreeReal) {
+    throw createApplyPatchBlockedError(
+      `patch contains path outside workspace root: ${target}`,
+    );
   }
 
-  throw new ApplyPatchError(
-    'blocked',
+  const treeReal = await ctx.worktreeReal;
+  if (inside(treeReal, targetReal)) {
+    return;
+  }
+
+  throw createApplyPatchBlockedError(
     `patch contains path outside workspace root: ${target}`,
   );
 }
 
-async function statOrNull(filePath: string): Promise<Stats | null> {
-  try {
-    return await fs.stat(filePath);
-  } catch (error) {
-    if (isMissingPathError(error)) return null;
-    throw new ApplyPatchError(
-      'internal',
-      `Failed to stat file for patch verification: ${filePath}`,
-      error,
+function createFileCacheContext(): FileCacheContext {
+  return { stats: new Map() };
+}
+
+async function statCached(
+  ctx: FileCacheContext,
+  filePath: string,
+): Promise<Stats | null> {
+  let pending = ctx.stats.get(filePath);
+  if (!pending) {
+    const nextPending = fs.stat(filePath).catch((error: unknown) => {
+      if (isMissingPathError(error)) {
+        return null;
+      }
+
+      throw createApplyPatchInternalError(
+        `Failed to stat file for patch verification: ${filePath}`,
+        error,
+      );
+    });
+    ctx.stats.set(filePath, nextPending);
+    pending = nextPending;
+  }
+
+  return await pending;
+}
+
+async function assertRegularFile(
+  ctx: FileCacheContext,
+  filePath: string,
+  verb: 'update' | 'delete',
+): Promise<void> {
+  const stat = await statCached(ctx, filePath);
+  if (!stat || stat.isDirectory()) {
+    throw createApplyPatchVerificationError(
+      `Failed to read file to ${verb}: ${filePath}`,
     );
   }
 }
@@ -161,10 +207,15 @@ function collectPatchTargets(root: string, hunks: PatchHunk[]): string[] {
   return [...targets];
 }
 
-function normalizePatchPath(root: string, value: string): string {
-  if (!path.isAbsolute(value)) return value;
-  const relative = path.relative(root, path.resolve(value));
+function toRelativePatchPath(root: string, target: string): string {
+  const relative = path.relative(root, target);
   return (relative.length === 0 ? '.' : relative).replaceAll('\\', '/');
+}
+
+function normalizePatchPath(root: string, value: string): string {
+  return path.isAbsolute(value)
+    ? toRelativePatchPath(root, path.resolve(value))
+    : value;
 }
 
 function normalizePatchPaths(
@@ -175,22 +226,41 @@ function normalizePatchPaths(
   changed: boolean;
 } {
   const resolvedRoot = path.resolve(root);
+  const normalized: PatchHunk[] = [];
   let changed = false;
 
-  const normalized = hunks.map((hunk): PatchHunk => {
-    const nextPath = normalizePatchPath(resolvedRoot, hunk.path);
-    if (hunk.type === 'update') {
-      const nextMove = hunk.move_path
-        ? normalizePatchPath(resolvedRoot, hunk.move_path)
-        : undefined;
-      if (nextPath === hunk.path && nextMove === hunk.move_path) return hunk;
-      changed = true;
-      return { ...hunk, path: nextPath, move_path: nextMove };
+  for (const hunk of hunks) {
+    const normalizedPath = normalizePatchPath(resolvedRoot, hunk.path);
+
+    if (hunk.type !== 'update') {
+      changed ||= normalizedPath !== hunk.path;
+      normalized.push(
+        normalizedPath === hunk.path
+          ? hunk
+          : {
+              ...hunk,
+              path: normalizedPath,
+            },
+      );
+      continue;
     }
-    if (nextPath === hunk.path) return hunk;
-    changed = true;
-    return { ...hunk, path: nextPath };
-  });
+
+    const normalizedMovePath = hunk.move_path
+      ? normalizePatchPath(resolvedRoot, hunk.move_path)
+      : undefined;
+    changed ||=
+      normalizedPath !== hunk.path || normalizedMovePath !== hunk.move_path;
+
+    normalized.push(
+      normalizedPath === hunk.path && normalizedMovePath === hunk.move_path
+        ? hunk
+        : {
+            ...hunk,
+            path: normalizedPath,
+            move_path: normalizedMovePath,
+          },
+    );
+  }
 
   return { hunks: normalized, changed };
 }
@@ -199,30 +269,32 @@ async function guardPatchTargets(
   root: string,
   worktree: string | undefined,
   targets: string[],
-): Promise<void> {
-  const guardContext: PathGuardContext = { root, worktree };
+): Promise<number> {
+  const guardContext = createPathGuardContext(root, worktree);
 
   for (const target of targets) {
     await guard(guardContext, target);
   }
+
+  return targets.length;
 }
 
 export function parseValidatedPatch(patchText: string): PatchHunk[] {
   let hunks: PatchHunk[];
 
   try {
-    hunks = parsePatch(patchText).hunks;
+    hunks = parsePatchStrict(patchText).hunks;
   } catch (error) {
-    throw new ApplyPatchError('validation', getErrorMessage(error));
+    throw createApplyPatchValidationError(getErrorMessage(error));
   }
 
   if (hunks.length === 0) {
-    const clean = normalizeLineEndings(patchText).trim();
+    const clean = patchText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
     if (clean === '*** Begin Patch\n*** End Patch') {
-      throw new ApplyPatchError('validation', 'empty patch');
+      throw createApplyPatchValidationError('empty patch');
     }
 
-    throw new ApplyPatchError('validation', 'no hunks found');
+    throw createApplyPatchValidationError('no hunks found');
   }
 
   return hunks;
@@ -236,21 +308,19 @@ async function readPreparedFileText(
     return await fs.readFile(filePath, 'utf-8');
   } catch (error) {
     if (isMissingPathError(error)) {
-      throw new ApplyPatchError(
-        'verification',
+      throw createApplyPatchVerificationError(
         `Failed to read file to ${verb}: ${filePath}`,
       );
     }
 
-    throw new ApplyPatchError(
-      'internal',
+    throw createApplyPatchInternalError(
       `Failed to read file for patch verification: ${filePath}`,
       error,
     );
   }
 }
 
-async function createPatchExecutionContext(
+export async function createPatchExecutionContext(
   root: string,
   patchText: string,
   worktree?: string,
@@ -262,34 +332,46 @@ async function createPatchExecutionContext(
     collectPatchTargets(root, parsedHunks),
   );
   const normalized = normalizePatchPaths(root, parsedHunks);
+  const files = createFileCacheContext();
   const staged = new Map<string, PreparedFileState>();
 
   async function assertPreparedPathMissing(
     filePath: string,
     verb: 'add' | 'move',
   ): Promise<void> {
-    const message =
-      verb === 'add'
-        ? `Add File target already exists: ${filePath}`
-        : `Move destination already exists: ${filePath}`;
     const existing = staged.get(filePath);
     if (existing) {
-      if (!existing.exists) return;
-    } else if (!(await statOrNull(filePath))) {
+      if (!existing.exists) {
+        return;
+      }
+
+      throw createApplyPatchVerificationError(
+        verb === 'add'
+          ? `Add File target already exists: ${filePath}`
+          : `Move destination already exists: ${filePath}`,
+      );
+    }
+
+    const stat = await statCached(files, filePath);
+    if (!stat) {
       return;
     }
-    throw new ApplyPatchError('verification', message);
+
+    throw createApplyPatchVerificationError(
+      verb === 'add'
+        ? `Add File target already exists: ${filePath}`
+        : `Move destination already exists: ${filePath}`,
+    );
   }
 
   async function getPreparedFileState(
     filePath: string,
     verb: 'update' | 'delete',
-  ): Promise<ExistingFileState> {
+  ): Promise<PreparedFileState> {
     const existing = staged.get(filePath);
     if (existing) {
       if (!existing.exists) {
-        throw new ApplyPatchError(
-          'verification',
+        throw createApplyPatchVerificationError(
           `Failed to read file to ${verb}: ${filePath}`,
         );
       }
@@ -297,17 +379,13 @@ async function createPatchExecutionContext(
       return existing;
     }
 
-    const stat = await statOrNull(filePath);
-    if (!stat?.isFile()) {
-      throw new ApplyPatchError(
-        'verification',
-        `Failed to read file to ${verb}: ${filePath}`,
-      );
-    }
+    await assertRegularFile(files, filePath, verb);
+    const stat = await statCached(files, filePath);
     const text = await readPreparedFileText(filePath, verb);
     const state: PreparedFileState = {
       exists: true,
       text,
+      mode: stat ? stat.mode & 0o7777 : undefined,
       derived: false,
     };
     staged.set(filePath, state);
@@ -323,101 +401,27 @@ async function createPatchExecutionContext(
   };
 }
 
-export async function simulatePatch(
-  root: string,
-  patchText: string,
-  worktree?: string,
-): Promise<{
-  hunks: PatchHunk[];
-  pathsNormalized: boolean;
-  steps: SimulatedStep[];
-}> {
-  const {
-    hunks,
-    pathsNormalized,
-    staged,
-    getPreparedFileState,
-    assertPreparedPathMissing,
-  } = await createPatchExecutionContext(root, patchText, worktree);
-  const steps: SimulatedStep[] = [];
-  const addedPaths = new Set<string>();
-
-  for (const hunk of hunks) {
-    const filePath = path.resolve(root, hunk.path);
-
-    if (hunk.type === 'add') {
-      await assertPreparedPathMissing(filePath, 'add');
-      const finalText = stageAddedText(hunk.contents);
-      steps.push({ type: 'add', hunk, filePath, finalText });
-      addedPaths.add(filePath);
-      staged.set(filePath, { exists: true, text: finalText, derived: true });
-      continue;
-    }
-
-    if (hunk.type === 'delete') {
-      if (addedPaths.has(filePath)) {
-        throw new ApplyPatchError(
-          'verification',
-          `Failed to read file to delete: ${filePath}`,
-        );
-      }
-      await getPreparedFileState(filePath, 'delete');
-      steps.push({ type: 'delete', hunk, filePath });
-      staged.set(filePath, { exists: false, derived: true });
-      continue;
-    }
-
-    const movePath = hunk.move_path
-      ? path.resolve(root, hunk.move_path)
-      : undefined;
-    if (movePath === filePath) {
-      throw new ApplyPatchError(
-        'validation',
-        `Move destination is the source: ${filePath}`,
-      );
-    }
-    const current = await getPreparedFileState(filePath, 'update');
-    if (movePath && movePath !== filePath) {
-      await assertPreparedPathMissing(movePath, 'move');
-    }
-
-    const { resolved, nextText } = resolvePreparedUpdate(
-      filePath,
-      current.text,
-      hunk,
-    );
-    steps.push({
-      type: 'update',
-      hunk,
-      filePath,
-      movePath,
-      current,
-      resolved,
-      nextText,
-    });
-
-    if (movePath && movePath !== filePath) {
-      staged.set(filePath, { exists: false, derived: true });
-    }
-    staged.set(movePath ?? filePath, {
-      exists: true,
-      text: nextText,
-      derived: true,
-    });
-  }
-
-  return { hunks, pathsNormalized, steps };
-}
-
 export function resolvePreparedUpdate(
   filePath: string,
   currentText: string,
   hunk: UpdatePatchHunk,
+  cfg: ApplyPatchRuntimeOptions,
 ): ResolvedPreparedUpdate {
   try {
-    return resolveUpdate(filePath, currentText, hunk.chunks);
+    const { lines, resolved, eol, hasFinalNewline } =
+      resolveUpdateChunksFromText(filePath, currentText, hunk.chunks, cfg);
+
+    return {
+      resolved,
+      nextText: applyHits(
+        lines,
+        resolved.map((chunk) => chunk.hit),
+        eol,
+        hasFinalNewline,
+      ),
+    };
   } catch (error) {
-    throw new ApplyPatchError('verification', getErrorMessage(error), error);
+    throw createApplyPatchVerificationError(getErrorMessage(error), error);
   }
 }
 

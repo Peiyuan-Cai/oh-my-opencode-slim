@@ -1,19 +1,5 @@
 export * from './constants';
 export * from './council-schema';
-export {
-  deepMerge,
-  loadAgentPrompt,
-  loadPluginConfig,
-  mergeAgentOverrides,
-  normalizePreset,
-  PresetResolutionError,
-  resolvePreset,
-  resolvePresets,
-} from './loader';
+export { loadAgentPrompt, loadPluginConfig } from './loader';
 export * from './schema';
-export {
-  getAcpAgentNames,
-  getAgentOverride,
-  getCustomAgentNames,
-  normalizeAgentSkillDirectives,
-} from './utils';
+export { getAgentOverride, getCustomAgentNames } from './utils';

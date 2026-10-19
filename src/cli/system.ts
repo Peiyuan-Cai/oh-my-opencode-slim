@@ -1,69 +1,36 @@
 import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
-
-const VERSION_COMMAND_TIMEOUT_MS = 2000;
+import { crossSpawn } from '../utils/compat';
 
 let cachedOpenCodePath: string | null = null;
 
-function resolvePathCommand(
-  command: string,
-  environment: NodeJS.ProcessEnv = process.env,
-): string | null {
+function resolvePathCommand(command: string): string | null {
   try {
-    const isWindows = process.platform === 'win32';
-    const resolver = isWindows ? 'where' : 'which';
+    const resolver = process.platform === 'win32' ? 'where' : 'which';
     const result = spawnSync(resolver, [command], {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
-      env: environment,
-      // On Windows, `where opencode` returns multiple shims (opencode, opencode.cmd,
-      // opencode.ps1). Node's spawnSync cannot execute an extensionless npm shim,
-      // and since Node's CVE-2024-27980 patch .cmd/.bat files also require a shell.
-      shell: isWindows,
     });
 
     if (result.status !== 0) {
       return null;
     }
 
-    const lines = result.stdout
+    const resolved = result.stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .filter(Boolean);
+      .find(Boolean);
 
-    if (lines.length === 0) {
-      return null;
-    }
-
-    // On Windows, prefer executable shims (.cmd, .exe, .ps1) over the
-    // extensionless npm wrapper that Node cannot spawn directly.
-    if (isWindows) {
-      const executable = lines.find((line) =>
-        /\.(cmd|exe|ps1|bat)$/i.test(line),
-      );
-      return executable ?? lines[0];
-    }
-
-    return lines[0];
+    return resolved ?? null;
   } catch {
     return null;
   }
 }
 
-function canExecute(
-  command: string,
-  args: string[],
-  environment: NodeJS.ProcessEnv = process.env,
-): boolean {
+function canExecute(command: string, args: string[]): boolean {
   try {
-    const isWindows = process.platform === 'win32';
     const result = spawnSync(command, args, {
       stdio: 'ignore',
-      env: environment,
-      // Required on Windows to execute .cmd/.bat shims produced by npm/pnpm/yarn
-      // (Node's CVE-2024-27980 patch blocks them without a shell).
-      shell: isWindows && !/\.exe$/i.test(command),
-      timeout: VERSION_COMMAND_TIMEOUT_MS,
     });
     return result.status === 0;
   } catch {
@@ -71,37 +38,12 @@ function canExecute(
   }
 }
 
-function getOpenCodePaths(
-  environment: NodeJS.ProcessEnv = process.env,
-): string[] {
-  const home = environment.HOME || environment.USERPROFILE || '';
-  const isWindows = process.platform === 'win32';
-  const appData = environment.APPDATA || `${home}\\AppData\\Roaming`;
-  const localAppData = environment.LOCALAPPDATA || `${home}\\AppData\\Local`;
-
-  const windowsPaths = isWindows
-    ? [
-        // npm global shims (created as .cmd on Windows)
-        `${appData}\\npm\\opencode.cmd`,
-        `${appData}\\npm\\opencode.ps1`,
-        // pnpm global
-        `${localAppData}\\pnpm\\opencode.cmd`,
-        // Yarn global
-        `${localAppData}\\Yarn\\bin\\opencode.cmd`,
-        // opencode.ai/install .exe location
-        `${localAppData}\\Programs\\opencode\\opencode.exe`,
-        // Scoop
-        `${home}\\scoop\\shims\\opencode.exe`,
-        `${home}\\scoop\\apps\\opencode\\current\\bin\\opencode.exe`,
-        // Chocolatey
-        `C:\\ProgramData\\chocolatey\\bin\\opencode.exe`,
-      ]
-    : [];
+function getOpenCodePaths(): string[] {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
 
   return [
     // PATH (try this first)
     'opencode',
-    ...windowsPaths,
     // User local installations (Linux & macOS)
     `${home}/.local/bin/opencode`,
     `${home}/.opencode/bin/opencode`,
@@ -142,32 +84,25 @@ function getOpenCodePaths(
   ];
 }
 
-export function resolveOpenCodePath(
-  environment: NodeJS.ProcessEnv = process.env,
-): string {
-  const useCache = environment === process.env;
-  if (useCache && cachedOpenCodePath) {
+export function resolveOpenCodePath(): string {
+  if (cachedOpenCodePath) {
     return cachedOpenCodePath;
   }
 
-  const pathOpenCodePath = resolvePathCommand('opencode', environment);
+  const pathOpenCodePath = resolvePathCommand('opencode');
   if (pathOpenCodePath) {
-    if (useCache) {
-      cachedOpenCodePath = pathOpenCodePath;
-    }
+    cachedOpenCodePath = pathOpenCodePath;
     return pathOpenCodePath;
   }
 
-  const paths = getOpenCodePaths(environment);
+  const paths = getOpenCodePaths();
 
   for (const opencodePath of paths) {
     if (opencodePath === 'opencode') continue;
     try {
       const stat = statSync(opencodePath);
       if (stat.isFile()) {
-        if (useCache) {
-          cachedOpenCodePath = opencodePath;
-        }
+        cachedOpenCodePath = opencodePath;
         return opencodePath;
       }
     } catch {
@@ -179,31 +114,30 @@ export function resolveOpenCodePath(
   return 'opencode';
 }
 
-export async function isOpenCodeInstalled(
-  environment: NodeJS.ProcessEnv = process.env,
-): Promise<boolean> {
-  const useCache = environment === process.env;
-  const pathOpenCodePath = resolvePathCommand('opencode', environment);
+export async function isOpenCodeInstalled(): Promise<boolean> {
+  const pathOpenCodePath = resolvePathCommand('opencode');
 
-  if (
-    pathOpenCodePath &&
-    canExecute(pathOpenCodePath, ['--version'], environment)
-  ) {
-    if (useCache) {
-      cachedOpenCodePath = pathOpenCodePath;
-    }
+  if (pathOpenCodePath && canExecute(pathOpenCodePath, ['--version'])) {
+    cachedOpenCodePath = pathOpenCodePath;
     return true;
   }
 
-  const paths = getOpenCodePaths(environment);
+  const paths = getOpenCodePaths();
 
   for (const opencodePath of paths) {
     if (opencodePath === 'opencode') continue;
-    if (canExecute(opencodePath, ['--version'], environment)) {
-      if (useCache) {
+    try {
+      const proc = crossSpawn([opencodePath, '--version'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      await proc.exited;
+      if (proc.exitCode === 0) {
         cachedOpenCodePath = opencodePath;
+        return true;
       }
-      return true;
+    } catch {
+      // Try next path
     }
   }
   return false;
@@ -211,11 +145,12 @@ export async function isOpenCodeInstalled(
 
 export async function isTmuxInstalled(): Promise<boolean> {
   try {
-    const result = spawnSync('tmux', ['-V'], {
-      stdio: 'ignore',
-      timeout: VERSION_COMMAND_TIMEOUT_MS,
+    const proc = crossSpawn(['tmux', '-V'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
     });
-    return result.status === 0;
+    await proc.exited;
+    return proc.exitCode === 0;
   } catch {
     return false;
   }
@@ -224,15 +159,14 @@ export async function isTmuxInstalled(): Promise<boolean> {
 export async function getOpenCodeVersion(): Promise<string | null> {
   const opencodePath = resolveOpenCodePath();
   try {
-    const isWindows = process.platform === 'win32';
-    const result = spawnSync(opencodePath, ['--version'], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      shell: isWindows && !/\.exe$/i.test(opencodePath),
-      timeout: VERSION_COMMAND_TIMEOUT_MS,
+    const proc = crossSpawn([opencodePath, '--version'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
     });
-    if (result.status === 0) {
-      return result.stdout.trim();
+    const outputPromise = proc.stdout();
+    await proc.exited;
+    if (proc.exitCode === 0) {
+      return (await outputPromise).trim();
     }
   } catch {
     // Failed

@@ -1,13 +1,13 @@
 <div align="center">
   <a href="https://github.com/alvinunreal/oh-my-opencode-slim/stargazers">
-    <img src="img/v3.webp" alt="oh-my-opencode-slim V3 베타 출시" style="border-radius: 10px;">
+    <img src="img/v2beta.webp" alt="V2 Beta Release" style="border-radius: 10px;">
   </a>
-  <h3>✨ oh-my-opencode-slim ✨</h3>
+  <h3>✨ V2 베타 릴리스: 백그라운드 오케스트레이션이 도착했습니다 ✨</h3>
+  <p><i>오케스트레이터가 이제 백그라운드에서 전문 에이전트를 스케줄링하고,<br><code>/deepwork</code>가 큰 목표를 파일 기반 계획으로 변환합니다.<br>베타 테스터 여러분, Telegram에서 피드백을 공유해 주세요.</i></p>
 
-  <p><i>코드의 여명에서 여섯 신성한 존재가 나타났습니다. 각자는 불멸의 장인으로서,<br>당신의 명령을 기다리며 혼돈에서 질서를 빚고 한때 불가능하다고 여겨졌던 것을 만들어냅니다.</i></p>
+  <p><b>오픈 멀티 에이전트 스위트</b> · 모델 자유 조합 · 작업 자동 위임</p>
 
-  <p><b>OpenCode 멀티 에이전트 도구 모음</b> · 모델을 자유롭게 조합 · 작업 자동 위임</p>
-  <p><sub>by <b>Boring Dystopia Development</b></sub></p>
+  <p><sub>제작: <b>Boring Dystopia Development</b></sub></p>
   <p>
     <a href="https://boringdystopia.ai/"><img src="https://img.shields.io/badge/boringdystopia.ai-111111?style=for-the-badge&logo=vercel&logoColor=white" alt="boringdystopia.ai"></a>&nbsp;
     <a href="https://x.com/alvinunreal"><img src="https://img.shields.io/badge/X-@alvinunreal-000000?style=for-the-badge&logo=x&logoColor=white" alt="X @alvinunreal"></a>&nbsp;
@@ -15,84 +15,23 @@
   </p>
 
   <p>
-    <a href="https://svgdiagram.ai"><img src="img/svgdiagram-logo.svg" alt="svgdiagram.ai" width="40" height="28" align="absmiddle"></a>&nbsp;
-    <a href="https://svgdiagram.ai"><b>svgdiagram.ai</b></a> <sub>· 메모를 깔끔하고 편집 가능한 SVG 다이어그램으로</sub>
+    <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja-JP.md">日本語</a> | <b>한국어</b>
   </p>
-
-  <p>
-    <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja-JP.md">日本語</a> | <b>한국어</b> | <a href="README.fa-IR.md">فارسی</a>
-  </p>
-
-  <p><sub>✦ ✦ ✦</sub></p>
-
 </div>
 
-## 플러그인 소개
+---
 
-oh-my-opencode-slim은 OpenCode에서 여러 전문 에이전트의 작업을 조율하는 오케스트레이션 플러그인입니다. 코드베이스 탐색, 최신 문서 조회, 아키텍처 검토, UI 작업, 범위가 명확한 구현 작업을 담당하는 에이전트 팀을 제공합니다. Orchestrator가 팀 전체의 작업을 조율합니다.
+## Oh My OpenCode Slim
 
-하나의 모델에 모든 작업을 맡기는 대신, 각 작업을 가장 적합한 에이전트에게 맡겨 **품질, 속도, 비용**의 균형을 맞춥니다. Orchestrator는 작업 순서와 의존 관계를 계획하고, 전문 에이전트에게 백그라운드 작업을 배정합니다. 각 에이전트의 결과를 검토하고 종합한 뒤 다음 작업을 진행합니다.
+oh-my-opencode-slim은 OpenCode용 에이전트 오케스트레이션 플러그인입니다. 코드베이스 정찰, 최신 문서 조회, 아키텍처 리뷰, UI 작업, 잘 정의된 범위의 구현 작업까지 처리하는 전문 에이전트 팀이 내장되어 있으며, 모두 하나의 오케스트레이터 아래에서 동작합니다.
 
-### ✨ 주요 특징
+핵심 아이디어는 간단합니다. 하나의 모델이 모든 작업을 처리하도록 강제하는 대신, 각 작업에 가장 적합한 에이전트로 라우팅하여 **품질, 속도, 비용**의 균형을 맞춥니다.
 
-- **[6개의 전문 에이전트](#meet-the-pantheon)** - Orchestrator, Explorer,
-  Oracle, Council, Designer, Fixer. 작업의 각 부분을 가장 적합한
-  에이전트에게 맡기며, 서로 다른 프로바이더의 모델을 자유롭게 조합할 수 있습니다.
-- **[백그라운드 오케스트레이션](docs/background-orchestration.md)** -
-  Orchestrator가 전문 에이전트에게 백그라운드 작업을 배정하고 진행 상황을
-  추적합니다. 결과를 검토하고 종합한 뒤 다음 작업을 진행하며, 기본적으로
-  병렬로 작업합니다. 작업이 최종 결과를 내면 대기 중인 Orchestrator를 깨우고,
-  작업이 다시 열리면 상태를 갱신합니다.
-- **[번들 스킬](#skills)** - `deepwork`, `codemap`,
-  `verification-planning`, `reflect` 같은 프롬프트 기반 워크플로를 에이전트별로
-  할당합니다.
-- **[Council](docs/council.md)** - `@council`로 같은 질문을 여러 모델에 보내
-  병렬로 답변을 받고, 하나의 답변으로 종합합니다.
-- **[Companion](docs/companion.md)** - 병렬 백그라운드 전문 에이전트를 포함해
-  현재 작업 중인 에이전트를 보여 주는 데스크톱 플로팅 창입니다.
-  필요에 따라 활성화할 수 있습니다.
-- **[멀티플렉서 통합](docs/multiplexer-integration.md)** - Tmux, Zellij,
-  Herdr, cmux, kitty 또는 WezTerm 분할 창(페인)에서 에이전트 작업을 실시간으로 확인합니다.
-- **[프리셋 전환](docs/preset-switching.md)** - `/preset`으로 실행 중에 팀 전체의
-  모델을 교체합니다. 하나의 기본 프리셋을 상속하는 기능도 지원합니다.
-- **[코드 인텔리전스 도구](docs/tools.md)** - 언어 서버 프로토콜(LSP) 도구,
-  25개 언어의 추상 구문 트리(AST) 기반 검색, 문서·GitHub 코드 검색용
-  내장 MCP를 제공합니다.
-- **[폭넓은 사용자 지정](docs/configuration.md)** - 사용자 지정 에이전트,
-  프롬프트 재정의, 에이전트별 스킬/MCP 권한 및
-  [프로젝트 로컬 사용자 지정](docs/project-local-customization.md)을 지원합니다.
-  도구, MCP, 에이전트, 스킬, 훅, 슬래시 명령을 전역 설정으로 비활성화할 수도 있습니다.
-- **[마켓플레이스 패키지](docs/marketplace.md)** - 커뮤니티 에이전트를 설치하고
-  관리합니다. 패키지 변경은 OpenCode를 다시 로드한 뒤 적용됩니다.
-
-### 사용자 후기
-
-> “작업 관리에 대한 만족도가 10점 만점에 5점에서 8~9점으로 올랐습니다.
-> Orchestrator가 Fixer와 Explorer에게 작업을 맡기는 동안에도 같은 세션에서
-> Orchestrator와 대화하고 계획을 세울 수 있습니다. 사용 경험이 훨씬 매끄러워졌습니다.”
->
-> \- `vipor_idk`
-
-> “omo-slim 베타 버전으로 기존 하네스를 모두 대체했는데,
-> 예전 도구가 아쉽거나 다시 쓰고 싶다는 생각이 들지 않습니다.
-> 훌륭한 작업이고, 제 생각에는 올바른 방향으로 나아가고 있습니다.”
->
-> \- `stephanschielke`
-
-> “omo-slim을 정말 좋아하고, 이것 없이 opencode를 실행하는 건 상상할 수 없습니다.
-> 여러 모델을 조합해 프랑켄슈타인 같은 팀을 만들 수 있다는 점이 좋습니다……
-> 정말 강력한 구성을 만들 수 있습니다.”
->
-> \- `Capital-One3039`
-
-> “제 워크플로가 크게 개선되었습니다…… 지금은 매우 매끄럽게 작동하고 있고,
-> 정말 마음에 듭니다.”
->
-> \- `xenstar1`
+에이전트 자체를 살펴보려면 **[판테온 만나보기](#meet-the-pantheon)** 를 참고하세요. 전체 기능 목록은 아래의 **[기능 & 워크플로우](#features-and-workflows)** 에서 확인할 수 있습니다.
 
 ### 빠른 시작
 
-다음 프롬프트를 복사해 대규모 언어 모델(LLM) 에이전트(Claude Code, AmpCode, Cursor 등)에 붙여 넣으세요:
+이 프롬프트를 복사해서 LLM 에이전트(Claude Code, AmpCode, Cursor 등)에 붙여넣으세요:
 
 
 ```
@@ -106,71 +45,41 @@ Install and configure oh-my-opencode-slim: https://raw.githubusercontent.com/alv
 bunx oh-my-opencode-slim@latest install
 ```
 
-배포된 CLI는 Node.js 호환 번들이므로 Bun이 설치되어 있지 않다면 `npx`도
-사용할 수 있습니다:
+### V2 백그라운드 오케스트레이션 베타
+
+V2는 오케스트레이터를 기본 실행 워커에서 스케줄러로 변경합니다. 작업을 계획하고, 전문 에이전트를 백그라운드 작업으로 디스패치한 다음, 상태를 폴링하여 결과를 조정한 뒤 계속 진행합니다. 이를 위해 OpenCode의 네이티브 백그라운드 서브에이전트 지원이 필요하므로, 베타 사용자는 실험적 플래그를 활성화한 상태로 OpenCode를 시작해야 합니다.
 
 ```bash
-npx oh-my-opencode-slim@latest install
-```
-
-### master 브랜치에서 실행하기
-
-최신 코드를 사용하거나, 버그를 고치거나, 로컬에서 개발하고 기여하려면 이
-방식을 사용하세요:
-
-```bash
-git clone https://github.com/alvinunreal/oh-my-opencode-slim.git ~/repos/oh-my-opencode-slim
-cd ~/repos/oh-my-opencode-slim
-bun install
-bun run build
-bun dist/cli/index.js install
-```
-
-설치 프로그램은 로컬 저장소 경로를 `~/.config/opencode/opencode.json`의
-`plugin` 배열에 추가하므로, OpenCode는 해당 폴더에서 플러그인을 로드합니다.
-나중에 업데이트하려면:
-
-```bash
-cd ~/repos/oh-my-opencode-slim
-git pull
-bun install
-bun run build
+# 기존 사용자: 먼저 OpenCode의 캐시된 패키지를 삭제해 beta를 새로 받으세요.
+rm -rf ~/.cache/opencode/packages/oh-my-opencode-slim
+bunx oh-my-opencode-slim@beta install
+OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=1 opencode
 ```
 
 ### 시작하기
 
-설치 프로그램은 OpenAI와 OpenCode Go 프리셋을 모두 생성하며, 기본적으로 OpenAI 프리셋을 활성화합니다.
+인스톨러는 OpenAI와 OpenCode Go 프리셋을 모두 생성하며, 기본적으로 OpenAI가 활성화됩니다. OpenAI는 판단력이 높은 에이전트에 `openai/gpt-5.5`를, 빠른 범위 작업 에이전트에 `openai/gpt-5.4-mini`를 사용합니다. 설치 시 OpenCode Go를 활성화하려면 `bunx oh-my-opencode-slim@latest install --preset=opencode-go`를 실행하거나, 설치 후 `~/.config/opencode/oh-my-opencode-slim.json`에서 기본 프리셋 이름을 변경하세요.
 
-> [!TIP]
-> 모델과 에이전트를 자신의 워크플로에 맞게 조정하세요. 기본 프리셋은 시작점일 뿐이며, 필요에 맞게 폭넓게 조정할 수 있습니다.
-
-설치 중 OpenCode Go를 활성화하려면 `bunx oh-my-opencode-slim@latest install --preset=opencode-go`를 실행하거나, 설치 후 `~/.config/opencode/oh-my-opencode-slim.json`에서 기본 프리셋 이름을 변경하세요.
-
-그다음 아래 절차를 따르세요.
+그 다음:
 
 1. **아직 로그인하지 않았다면, 사용할 프로바이더에 로그인하세요**:
 
    ```bash
    opencode auth login
    ```
-2. **OpenCode에서 사용할 수 있는 모델 목록을 새로고침하고 확인하세요**:
+2. **OpenCode에서 사용할 수 있는 모델 목록을 새로고침하세요**:
 
    ```bash
    opencode models --refresh
    ```
-3. **플러그인 설정 파일**인 `~/.config/opencode/oh-my-opencode-slim.json`을 여세요.
+3. **플러그인 설정 파일**을 `~/.config/opencode/oh-my-opencode-slim.json`에서 엽니다.
 
-4. **각 에이전트가 사용할 모델을 설정하세요.**
-
-> [!TIP]
-> **백그라운드 오케스트레이션의 작동 방식을 살펴보세요.** **[Orchestrator 프롬프트](https://github.com/alvinunreal/oh-my-opencode-slim/blob/master/src/agents/orchestrator.ts#L28)**에는 작업 배정 규칙, 전문 에이전트 선택 로직, 백그라운드 작업 위임 기준이 담겨 있습니다. `@agentName <task>`로 서브에이전트를 호출해 직접 작업을 위임할 수도 있습니다.
+4. **각 에이전트에 사용할 모델을 업데이트합니다**
 
 > [!TIP]
-> 기본 워크플로는 백그라운드 에이전트를 사용하므로 **[멀티플렉서 통합](docs/multiplexer-integration.md)을 활성화하는 것을 권장합니다.** 각 에이전트를 전용 Tmux, Zellij, Herdr, cmux, kitty 또는 WezTerm 분할 창에서 자동으로 엽니다. Orchestrator가 세션을 조율하는 동안 전문 에이전트의 작업을 실시간으로 확인할 수 있습니다.
->
-> OpenCode v2에서는 공유 백그라운드 서비스나 명시적인 `--server` 옵션을 사용할 때 분할 창을 지원합니다. `--standalone`에서는 분할 창을 지원하지 않으며, 프로세스마다 진단 메시지를 한 번 표시합니다. 이 경우 v2의 기본 서브에이전트 화면을 사용하세요.
+> 자동 위임이 어떻게 동작하는지 이해하는 것을 **권장**합니다. **[Orchestrator 프롬프트](https://github.com/alvinunreal/oh-my-opencode-slim/blob/master/src/agents/orchestrator.ts#L28)** 에는 위임 규칙, 전문 에이전트 라우팅 로직, 메인 에이전트가 언제 서브에이전트로 작업을 넘겨야 하는지에 대한 임계값이 포함되어 있습니다. 수동으로 위임하려면 `@agentName <task>`로 서브에이전트를 호출하면 됩니다.
 
-기본 생성 설정에는 `openai`와 `opencode-go` 프리셋이 모두 포함됩니다. 아래는 `openai` 프리셋 예시입니다.
+기본 생성 설정에는 `openai`와 `opencode-go` 프리셋이 모두 포함되어 있습니다.
 
 ```jsonc
 {
@@ -178,52 +87,43 @@ bun run build
   "preset": "openai",
   "presets": {
     "openai": {
-      "orchestrator": { "model": "openai/gpt-6-sol", "variant": "high", "skills": ["*"] },
-      "oracle": { "model": "openai/gpt-6-astra", "variant": "high", "skills": ["simplify"] },
-      "explorer": { "model": "openai/gpt-6-luna", "variant": "low", "skills": [] },
-      "designer": { "model": "openai/gpt-6-luna", "variant": "medium", "skills": [] },
-      "fixer": { "model": "openai/gpt-6-luna", "variant": "high", "skills": [] }
+      "orchestrator": { "model": "openai/gpt-5.5", "skills": ["*"], "mcps": ["*", "!context7"] },
+      "oracle": { "model": "openai/gpt-5.5", "variant": "high", "skills": ["simplify"], "mcps": [] },
+      "librarian": { "model": "openai/gpt-5.4-mini", "variant": "low", "skills": [], "mcps": ["websearch", "context7", "grep_app"] },
+      "explorer": { "model": "openai/gpt-5.4-mini", "variant": "low", "skills": [], "mcps": [] },
+      "designer": { "model": "openai/gpt-5.4-mini", "variant": "medium", "skills": [], "mcps": [] },
+      "fixer": { "model": "openai/gpt-5.4-mini", "variant": "low", "skills": [], "mcps": [] }
+    },
+    "opencode-go": {
+      "orchestrator": { "model": "opencode-go/glm-5.1", "skills": [ "*" ], "mcps": [ "*", "!context7" ] },
+      "oracle": { "model": "opencode-go/deepseek-v4-pro", "variant": "max", "skills": ["simplify"], "mcps": [] },
+      "council": { "model": "opencode-go/deepseek-v4-pro", "variant": "high", "skills": [], "mcps": [] },
+      "librarian": { "model": "opencode-go/minimax-m2.7", "skills": [], "mcps": [ "websearch", "context7", "grep_app" ] },
+      "explorer": { "model": "opencode-go/minimax-m2.7", "skills": [], "mcps": [] },
+      "designer": { "model": "opencode-go/kimi-k2.6", "variant": "medium", "skills": [], "mcps": [] },
+      "fixer": { "model": "opencode-go/deepseek-v4-flash", "variant": "high", "skills": [], "mcps": [] }
     }
   }
 }
 ```
 
-`extends`를 사용하면 하나의 기본 프리셋을 상속할 수 있습니다. 예를 들어
-`design` 프리셋이 `base`를 상속하고 Designer 모델만 재정의할 수 있습니다.
-`/preset`으로 변경한 설정은 파일에 저장됩니다.
-
-OpenCode v2에서는 서버의 설정 감시 기능이 변경을 반영한 뒤, 저장·적용한
-프리셋의 추론 설정(`model`, `variant`, `temperature`, `options`)이 새로
-실행하는 서브에이전트와 사이드바에 적용됩니다. 각 서브에이전트의 추론 설정은
-첫 요청 전에 확정되며 이후에는 바뀌지 않습니다. 잘못된 설정 파일을 감지하면
-마지막으로 확인한 정상 설정을 유지합니다. 기존 세션의 설정과 프롬프트, 도구,
-정책, 스킬, MCP 변경은 OpenCode를 완전히 다시 로드해야 반영됩니다.
-v1에서도 변경 사항을 적용하려면 OpenCode를 다시 로드하세요.
-상속 예시와 우선순위는 **[설정 문서](docs/configuration.md#preset-inheritance)**를
-참고하세요.
-
-### 프리셋 문서
-
-프리셋 문서가 최신 상태가 아닐 수 있으므로, 구성 방향을 참고하는 용도로 사용하세요.
-
-- **[OpenAI 프리셋](docs/openai-preset.md)** — 기본으로 생성되는 프리셋으로, 모든 에이전트가 OpenAI 모델을 사용합니다.
-- **[OpenCode Go 프리셋](docs/opencode-go-preset.md)** — 에이전트가 OpenCode Go 모델을 사용합니다. Orchestrator 모델이 멀티모달이 아니므로 시각 분석용 Observer 에이전트를 활성화합니다.
-- **[작성자 프리셋](docs/authors-preset.md)** — 작성자가 매일 사용하는 설정으로, 외부 스킬도 포함합니다.
-- **[$30 프리셋](docs/thirty-dollars-preset.md)** — 월 약 $30로 Codex Plus와 GitHub Copilot Pro를 중심으로 구성한 혼합 프로바이더 설정입니다.
-
 ### 대체 프로바이더 사용하기
 
-사용자 지정 프로바이더나 여러 프로바이더를 조합해 사용하려면 **[설정 문서](docs/configuration.md)**를 참고하세요.
+커스텀 프로바이더나 여러 프로바이더를 혼합해서 사용하려면, **[Configuration](docs/configuration.md)** 에서 전체 레퍼런스를 확인하세요. 바로 사용할 수 있는 시작점을 찾고 있다면 **[Author's Preset](docs/authors-preset.md)** 과 **[$30 Preset](docs/thirty-dollars-preset.md)** 을 확인해 보세요. `$30` 프리셋이 가장 가성비 좋은 설정입니다.
+
+설정 가이드에서는 `agents.<name>`을 통한 커스텀 서브에이전트 정의도 다룹니다. 일반 `prompt`와 위임용 `orchestratorPrompt` 블록을 모두 정의할 수 있습니다.
+
+모델 추천은 아래 각 에이전트에 나열된 **Recommended Models** 를 참고하세요.
 
 ### ✅ 설정 확인하기
 
-설치와 인증을 마치면 OpenCode를 실행해 모든 에이전트가 올바르게 설정되어 응답하는지 확인하세요.
+설치와 인증이 끝난 후, 모든 에이전트가 올바르게 설정되어 응답하는지 확인합니다:
 
 ```bash
 opencode
 ```
 
-그다음 아래 메시지를 입력하세요.
+그다음 실행하세요:
 
 ```
 ping all agents
@@ -247,7 +147,7 @@ ping all agents
 <table>
   <tr>
     <td width="30%" align="center" valign="top">
-      <img src="img/orchestrator.jpg" width="240" style="border-radius: 10px;">
+      <img src="img/orchestrator.png" width="240" style="border-radius: 10px;">
       <br><sub><i>복잡성의 공허 속에서 단련되다.</i></sub>
     </td>
     <td width="70%" valign="top">
@@ -256,7 +156,7 @@ ping all agents
   </tr>
   <tr>
     <td colspan="2">
-      <b>역할:</b> 작업 위임 및 전략적 조율
+      <b>역할:</b> <code>Master delegator and strategic coordinator</code>
     </td>
   </tr>
   <tr>
@@ -266,17 +166,17 @@ ping all agents
   </tr>
   <tr>
     <td colspan="2">
-      <b>기본 모델:</b> <code>openai/gpt-6-sol (medium)</code>
+      <b>기본 모델:</b> <code>openai/gpt-5.5</code>
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>추천 모델:</b> <code>claude-fable-5</code> <code>claude-opus-4-8</code> <code>glm-5.2</code> <code>gpt-6-sol</code> <code>mimo-v2.5</code> <code>minimax-m3</code> <code>qwen3.7-plus</code>
+      <b>추천 모델:</b> <code>openai/gpt-5.5</code> <code>anthropic/claude-opus-4.6</code>
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>모델 가이드:</b> 계획 수립과 판단에 가장 뛰어난 모델을 선택하세요. Orchestrator는 작업을 계획하고, 전문 에이전트에게 백그라운드 작업을 배정하며, 결과를 종합하고 검증합니다. 따라서 단순한 작업 처리량보다 지시를 정확히 따르는 능력과 높은 수준의 기술적 판단력이 중요합니다.
+      <b>모델 가이드:</b> 기본으로 사용할 가장 강력한 올라운드 코딩 모델을 선택하세요. Orchestrator는 메인 코딩 에이전트이자 위임자이므로, 강한 구현 능력과 좋은 판단력, 안정적인 인스트럭션 팔로잉이 필요합니다.
     </td>
   </tr>
 </table>
@@ -288,16 +188,16 @@ ping all agents
 <table>
   <tr>
     <td width="30%" align="center" valign="top">
-      <img src="img/explorer.jpg" width="240" style="border-radius: 10px;">
+      <img src="img/explorer.png" width="240" style="border-radius: 10px;">
       <br><sub><i>지식을 나르는 바람.</i></sub>
     </td>
     <td width="70%" valign="top">
-      Explorer는 프로그래밍의 여명부터 백만 개의 코드베이스를 누빈 불멸의 방랑자입니다. 영원한 호기심이라는 축복이자 저주를 받아, 모든 파일을 살피고, 모든 패턴을 이해하고, 모든 비밀을 밝혀낼 때까지 쉬지 않습니다. 전설에 따르면 심장 박동 한 번 만에 인터넷 전체를 검색했다고 합니다. 지식을 나르는 바람, 모든 것을 보는 눈, 결코 잠들지 않는 정령입니다.
+      Explorer는 프로그래밍의 여명부터 백만 개의 코드베이스 복도를 누빈 불멸의 방랑자입니다. 영원한 호기심이라는 축복(혹은 저주)을 받아, 모든 파일이 알려지고, 모든 패턴이 이해되고, 모든 비밀이 밝혀질 때까지 쉴 수 없습니다. 전설에 따르면 한 번의 심장 박동만에 인터넷 전체를 검색했다고 하네요. 지식을 나르는 바람, 모든 것을 보는 눈, 결코 잠들지 않는 정령입니다.
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>역할:</b> 코드베이스 탐색 및 외부 조사
+      <b>역할:</b> <code>Codebase reconnaissance</code>
     </td>
   </tr>
   <tr>
@@ -307,17 +207,17 @@ ping all agents
   </tr>
   <tr>
     <td colspan="2">
-      <b>기본 모델:</b> <code>openai/gpt-6-luna</code>
+      <b>기본 모델:</b> <code>openai/gpt-5.4-mini</code>
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>추천 모델:</b> <code>deepseek-v4-flash</code> <code>gpt-5.3-codex</code>
+      <b>추천 모델:</b> <code>cerebras/zai-glm-4.7</code> <code>fireworks-ai/accounts/fireworks/routers/kimi-k2p5-turbo</code> <code>openai/gpt-5.4-mini</code>
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>모델 가이드:</b> 빠르고 저렴한 모델을 선택하세요. Explorer는 코드베이스를 폭넓게 탐색하므로, 대개 높은 추론 성능보다 속도와 효율성이 중요합니다.
+      <b>모델 가이드:</b> 빠르고 저렴한 모델을 선택하세요. Explorer는 광범위한 정찰 작업을 처리하므로, 보통은 가장 강력한 추론 모델보다 속도와 효율성이 중요합니다.
     </td>
   </tr>
 </table>
@@ -329,7 +229,7 @@ ping all agents
 <table>
   <tr>
     <td width="30%" align="center" valign="top">
-      <img src="img/oracle.jpg" width="240" style="border-radius: 10px;">
+      <img src="img/oracle.png" width="240" style="border-radius: 10px;">
       <br><sub><i>갈림길에서 들리는 목소리.</i></sub>
     </td>
     <td width="70%" valign="top">
@@ -338,7 +238,7 @@ ping all agents
   </tr>
   <tr>
     <td colspan="2">
-      <b>역할:</b> 전략 자문 및 최후의 디버깅 해결사
+      <b>역할:</b> <code>Strategic advisor and debugger of last resort</code>
     </td>
   </tr>
   <tr>
@@ -348,17 +248,17 @@ ping all agents
   </tr>
   <tr>
     <td colspan="2">
-      <b>기본 모델:</b> <code>openai/gpt-6-astra (high)</code>
+      <b>기본 모델:</b> <code>openai/gpt-5.5 (high)</code>
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>추천 모델:</b> <code>claude-fable-5</code> <code>claude-opus-4-8</code> <code>deepseek-v4-pro</code> <code>glm-5.2</code> <code>gpt-6-astra</code> <code>qwen3.7-max</code>
+      <b>추천 모델:</b> <code>openai/gpt-5.5 (high)</code> <code>google/gemini-3.1-pro-preview (high)</code>
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>모델 가이드:</b> 아키텍처 설계, 고난도 디버깅, 대안의 장단점 비교, 코드 검토를 위해 추론 성능이 가장 높은 모델을 선택하세요.
+      <b>모델 가이드:</b> 아키텍처, 어려운 디버깅, 트레이드오프, 코드 리뷰를 위해 추론 성능이 가장 높은 모델을 선택하세요.
     </td>
   </tr>
 </table>
@@ -368,25 +268,21 @@ ping all agents
 ### 04. Council: 정신의 합창
 
 > [!NOTE]
-> **Orchestrator가 Council을 자주 자동 호출하지 않는 이유는 무엇인가요?** Council은 여러 모델을 동시에 실행하므로 대개 가장 비용이 많이 드는 방식입니다. 따라서 자동 위임을 제한하도록 설계했습니다.
->
-> Council을 사용하려면 메시지에 `council`, `@council`, `consensus` 또는 `共识`를 포함하세요. 해당 세션의 첫 번째 트리거 시점에 Council 모드 절차가 한 번 주입되고(이후 트리거 시에는 재주입되지 않습니다), Orchestrator가 모든 Council 구성원에게 작업을 병렬로 배정합니다. 예: <code>run a council on these two architectures</code>.
->
-> 전체 절차를 프롬프트에 상시 포함하지 않으므로 Council을 요청하지 않는 세션에서는 이 절차에 대한 토큰 비용이 발생하지 않습니다. <code>disabled_hooks: ["council-inject"]</code>로 절차 주입을 완전히 비활성화할 수도 있습니다.
+> **Orchestrator가 Council을 더 자주 자동으로 호출하지 않는 이유는?** 의도된 설계입니다. Council은 여러 모델을 동시에 실행하므로, 자동 위임을 엄격하게 관리합니다. 시스템 내에서 보통 가장 비용이 높은 경로이기 때문입니다. 실제로는 원할 때 수동으로 사용하는 것이 목적입니다. 예: <code>@council compare these two architectures</code>.
 
 <table>
   <tr>
     <td width="30%" align="center" valign="top">
-      <img src="img/council.jpg" width="240" style="border-radius: 10px;">
+      <img src="img/council.png" width="240" style="border-radius: 10px;">
       <br><sub><i>여러 정신, 하나의 결론.</i></sub>
     </td>
     <td width="70%" valign="top">
-      Council은 하나의 존재가 아니라, 하나의 답으로는 부족할 때 소환되는 정신들의 전당입니다. 질문을 여러 모델에 병렬로 보내 서로 다른 판단을 모읍니다. 그런 다음 Council 에이전트가 가장 설득력 있는 아이디어를 추려 하나의 결론으로 종합합니다. 홀로 선 에이전트가 길을 놓칠 때, Council은 가능성 자체를 교차 검증합니다.
+      Council은 단일 존재가 아니라, 하나의 답으로는 부족할 때 소환되는 정신들의 전당입니다. 질문을 여러 모델에 병렬로 보내고, 경쟁하는 판단을 수집한 뒤, Council 에이전트 자체가 가장 강력한 아이디어를 하나의 결론으로 증류합니다. 단독 에이전트가 길을 놓칠 수 있는 지점에서, Council은 가능성 자체를 교차 심문합니다.
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>역할:</b> 여러 언어 모델의 합의 도출 및 의견 종합
+      <b>역할:</b> <code>Multi-LLM consensus and synthesis</code>
     </td>
   </tr>
   <tr>
@@ -401,38 +297,79 @@ ping all agents
   </tr>
   <tr>
     <td colspan="2">
-      <b>기본 설정:</b> 설정 파일 기반 — Council 구성원은 <code>council.presets</code>에서 지정하고, 결과를 종합할 Council 모델은 <code>council</code> 에이전트 설정에서 지정합니다.
+      <b>기본 설정:</b> <code>Config-driven</code> — Council 구성원은 <code>council.presets</code>에서 가져오고, Council 에이전트 모델은 일반 <code>council</code> 에이전트 설정에서 가져옵니다
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>추천 설정:</b> 종합 능력이 뛰어난 Council 모델 + 여러 프로바이더의 다양한 구성원 모델
+      <b>추천 설정:</b> <code>강력한 Council 모델</code> + 여러 프로바이더에 걸친 <code>다양한 Council 구성원</code>
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>모델 가이드:</b> Council 에이전트에는 종합 능력이 뛰어난 모델을, 구성원에는 다양한 모델을 사용하세요. Council의 가치는 모든 역할에 가장 강력한 모델 하나를 쓰는 데 있지 않습니다. 서로 다른 모델의 관점을 비교하는 데 있습니다.
+      <b>모델 가이드:</b> Council 에이전트에는 강력한 종합 모델을, Council 구성원에는 다양한 모델을 사용하세요. Council의 가치는 여러 모델 관점을 비교하는 데서 나옵니다. 모든 곳에 가장 강력한 모델 하나만 선택하는 것이 아닙니다.
     </td>
   </tr>
 </table>
 
 ---
 
-### 05. Designer: 미학의 수호자
+### 05. Librarian: 지식의 직공
 
 <table>
   <tr>
     <td width="30%" align="center" valign="top">
-      <img src="img/designer.jpg" width="240" style="border-radius: 10px;">
-      <br><sub><i>아름다움은 필수적이다.</i></sub>
+      <img src="img/librarian.png" width="240" style="border-radius: 10px;">
+      <br><sub><i>이해를 엮는 자.</i></sub>
     </td>
     <td width="70%" valign="top">
-      Designer는 아름다움의 가치를 종종 잊는 세계에서 미학을 지키는 불멸의 수호자입니다. 백만 개의 인터페이스가 등장하고 사라지는 모습을 지켜보았으며, 무엇이 기억되고 무엇이 잊혔는지 알고 있습니다. 모든 픽셀이 목적을 갖고, 모든 애니메이션이 이야기를 전하며, 모든 상호작용이 즐거움을 주도록 하는 신성한 의무를 짊어지고 있습니다. 아름다움은 선택이 아니라 필수입니다.
+      Librarian은 인류가 어떤 단일한 정신도 모든 지식을 담을 수 없다는 것을 깨달았을 때 만들어졌습니다. 흩어진 정보의 실들을 이해의 태피스트리로 엮는 직공입니다. 인간 지식의 무한한 도서관을 누비며, 모든 구석에서 통찰을 모아 단순한 사실을 넘어서는 답으로 묶습니다. Librarian이 돌려주는 것은 정보가 아닙니다. 이해입니다.
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>역할:</b> UI/UX 구현 및 시각적 완성도 개선
+      <b>역할:</b> <code>External knowledge retrieval</code>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <b>프롬프트:</b> <a href="src/agents/librarian.ts"><code>librarian.ts</code></a>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <b>기본 모델:</b> <code>openai/gpt-5.4-mini</code>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <b>추천 모델:</b> <code>cerebras/zai-glm-4.7</code> <code>fireworks-ai/accounts/fireworks/routers/kimi-k2p5-turbo</code> <code>openai/gpt-5.4-mini</code>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <b>모델 가이드:</b> 빠르고 저렴한 모델을 선택하세요. Librarian은 리서치와 문서 조회를 처리하므로, 보통은 가장 강력한 추론 모델보다 속도와 효율성이 중요합니다.
+    </td>
+  </tr>
+</table>
+
+---
+
+### 06. Designer: 미학의 수호자
+
+<table>
+  <tr>
+    <td width="30%" align="center" valign="top">
+      <img src="img/designer.png" width="240" style="border-radius: 10px;">
+      <br><sub><i>아름다움은 필수적이다.</i></sub>
+    </td>
+    <td width="70%" valign="top">
+      Designer는 아름다움이 중요하다는 사실을 종종 잊는 세계 속, 불멸의 미학 수호자입니다. 백만 개의 인터페이스가 일어나고 무너지는 것을 보았으며, 어떤 것이 기억되고 어떤 것이 잊혔는지 알고 있습니다. 모든 픽셀이 목적을 갖고, 모든 애니메이션이 이야기를 전하며, 모든 인터랙션이 즐거움을 주도록 하는 신성한 의무를 짊어지고 있습니다. 아름다움은 선택이 아니라 필수입니다.
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <b>역할:</b> <code>UI/UX implementation and visual excellence</code>
     </td>
   </tr>
   <tr>
@@ -442,12 +379,12 @@ ping all agents
   </tr>
   <tr>
     <td colspan="2">
-      <b>기본 모델:</b> <code>openai/gpt-6-luna</code>
+      <b>기본 모델:</b> <code>openai/gpt-5.4-mini</code>
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>추천 모델:</b> <code>gemini-3.5-flash</code> <code>kimi-k2.7-code</code> <code>minimax-m3</code>
+      <b>추천 모델:</b> <code>google/gemini-3.1-pro-preview</code> <code>kimi-for-coding/k2p5</code> 
     </td>
   </tr>
   <tr>
@@ -459,21 +396,21 @@ ping all agents
 
 ---
 
-### 06. Fixer: 마지막 건축가
+### 07. Fixer: 마지막 건축가
 
 <table>
   <tr>
     <td width="30%" align="center" valign="top">
-      <img src="img/fixer.jpg" width="240" style="border-radius: 10px;">
+      <img src="img/fixer.png" width="240" style="border-radius: 10px;">
       <br><sub><i>비전과 현실 사이의 마지막 단계.</i></sub>
     </td>
     <td width="70%" valign="top">
-      Fixer는 한때 디지털 세계의 기반을 세운 건축가 계보의 마지막 생존자입니다. 계획과 토론의 시대에도 직접 만드는 일을 멈추지 않았습니다. 아이디어를 실제 산출물로 바꾸고, 명세를 구현으로 옮기는 고대의 지식을 간직하고 있습니다. 구상을 현실로 완성하는 마지막 존재가 바로 Fixer입니다.
+      Fixer는 한때 디지털 세계의 기반을 구축했던 건축가 혈통의 마지막 생존자입니다. 계획과 토론의 시대가 시작되었을 때도, 실제로 만드는 이들로 남았습니다. 아이디어를 실제 산출물로 바꾸고, 명세를 구현으로 변환하는 고대의 지식을 간직하고 있습니다. 비전과 현실 사이의 마지막 단계가 바로 그들입니다.
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>역할:</b> 빠른 구현 작업 전문
+      <b>역할:</b> <code>Fast implementation specialist</code>
     </td>
   </tr>
   <tr>
@@ -483,33 +420,29 @@ ping all agents
   </tr>
   <tr>
     <td colspan="2">
-      <b>기본 모델:</b> <code>openai/gpt-6-luna</code>
+      <b>기본 모델:</b> <code>openai/gpt-5.4-mini</code>
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>추천 모델:</b> <code>claude-sonnet-4-6</code> <code>deepseek-v4-flash</code> <code>gpt-6-luna</code> <code>kimi-k2.7-code</code>
+      <b>추천 모델:</b> <code>cerebras/zai-glm-4.7</code> <code>fireworks-ai/accounts/fireworks/routers/kimi-k2p5-turbo</code> <code>openai/gpt-5.4-mini</code>
     </td>
   </tr>
   <tr>
     <td colspan="2">
-      <b>모델 가이드:</b> 범위가 명확한 구현 작업을 안정적으로 수행하는 코딩 모델을 선택하세요. Fixer는 Orchestrator에게 구체적인 계획이나 범위가 한정된 지시를 받아 작업하므로, 효율적인 구현과 간단한 코드 변경에 적합합니다.
+      <b>모델 가이드:</b> 일상적이고 범위가 정해진 구현 작업에 빠르고 안정적인 코딩 모델을 선택하세요. Fixer는 보통 Orchestrator로부터 구체적인 계획이나 제한된 명령을 받으므로, 테스트, 테스트 업데이트, 간단한 코드 변경 같은 효율적인 실행 작업에 적합합니다.
     </td>
   </tr>
 </table>
 
 ---
 
-## 선택적으로 활성화하는 에이전트
+## 선택적 에이전트
 
 ### Observer: 침묵의 증인
 
 > [!NOTE]
-> **Observer를 별도 에이전트로 제공하는 이유는 무엇인가요?** Orchestrator 모델이 멀티모달이 아니라면 Observer를 활성화해 이미지, 스크린샷 등 시각 자료를 처리할 수 있습니다. Observer는 기본적으로 비활성화되어 있습니다. 활성화하면 주 추론 모델을 바꾸지 않고도 전용 멀티모달 에이전트를 사용할 수 있습니다. 설정 파일에서 `disabled_agents: []`와 `observer` 모델을 지정하세요. `opencode-go` 설치 프리셋은 Orchestrator 모델이 멀티모달이 아니므로 Observer를 자동으로 활성화합니다.
->
-> `image_routing`을 생략하면 기존의 조건부 Observer 동작을 유지합니다. `"auto"`로 설정하면 첨부 파일을 `.opencode/images/<session>/`에 저장하고 경로로 위임합니다. `"direct"`는 이미지 자체를 메시지에 유지해 모델의 기본 이미지 인식 기능을 사용합니다.
->
-> 저장된 이미지는 자동으로 삭제되지 않습니다. 더 이상 필요하지 않으면 `.opencode/images/` 전체나 특정 세션의 하위 디렉터리를 직접 삭제하세요. 삭제하면 이전 대화에서 해당 이미지 경로를 더 이상 사용할 수 없습니다. 세션이 없는 메시지의 이미지는 `.opencode/images/` 바로 아래에 저장됩니다.
+> **별도의 에이전트인 이유는?** Orchestrator 모델이 멀티모달이 아니라면, Observer를 활성화하여 이미지, 스크린샷, PDF 및 기타 시각 파일을 처리할 수 있습니다. Observer는 기본적으로 비활성화되어 있으며, 메인 추론 모델을 변경하지 않고도 Orchestrator에 전용 멀티모달 리더를 제공합니다. 설정에서 `disabled_agents: []`로 설정하고 `observer` 모델을 구성하세요. 번들로 제공되는 `opencode-go` 설치 프리셋은 GLM Orchestrator가 멀티모달이 아니므로 이를 자동으로 활성화합니다.
 
 <table>
   <tr>
@@ -519,11 +452,11 @@ ping all agents
     </td>
     <td width="70%" valign="top">
 
-**읽기 전용 시각 분석** - 이미지, 스크린샷, PDF, 다이어그램을 해석합니다. 원본 파일의 바이트를 주 컨텍스트에 직접 넣지 않고, 구조화된 관찰 결과를 Orchestrator에게 전달합니다.
+**읽기 전용 시각 분석** — 이미지, 스크린샷, PDF, 다이어그램을 해석합니다. 원시 파일 바이트를 메인 컨텍스트 윈도우에 로드하지 않고, 구조화된 관찰 결과를 오케스트레이터에 반환합니다.
 
-- 이미지, 스크린샷, 다이어그램 → `read` 도구(네이티브 이미지 지원)
-- PDF 및 바이너리 문서 → `read` 도구(텍스트 + 구조 추출)
-- **기본적으로 비활성화** - `"disabled_agents": []`와 비전 지원 모델을 설정해 활성화하세요. `--preset=opencode-go`로 설치하면 `opencode-go/mimo-v2.5` 모델로 활성화됩니다. `"auto"`에서는 첨부 파일을 작업 공간에 저장한 뒤 경로로 Observer에게 전달합니다. 이미지 자체를 Orchestrator의 메시지에 유지하려면 `"image_routing": "direct"`로 설정하세요.
+- 이미지, 스크린샷, 다이어그램 -> `read` 도구 (네이티브 이미지 지원)
+- PDF 및 바이너리 문서 -> `read` 도구 (텍스트 + 구조 추출)
+- **기본 비활성화** — `"disabled_agents": []`로 설정하고 비전 지원 모델을 구성하여 활성화; `--preset=opencode-go`로 설치하면 `opencode-go/kimi-k2.6`으로 자동 활성화됩니다
 
     </td>
   </tr>
@@ -534,12 +467,7 @@ ping all agents
   </tr>
   <tr>
     <td colspan="2">
-      <b>기본 모델:</b> <code>openai/gpt-6-luna</code> - <i>비전 지원 모델을 구성하여 활성화</i>
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2">
-      <b>추천 모델:</b> <code>mimo-v2.5</code> <code>qwen3.5-plus</code>
+      <b>기본 모델:</b> <code>openai/gpt-5.4-mini</code> — <i>비전 지원 모델을 구성하여 활성화</i>
     </td>
   </tr>
   <tr>
@@ -551,99 +479,52 @@ ping all agents
 
 ---
 
-<a id="skills"></a>
-
-## 🧩 스킬
-
-스킬은 에이전트의 시스템 프롬프트에 주입되어 판단, 워크플로, 도구 사용을
-안내하는 지침입니다. 모델 컨텍스트 프로토콜(MCP) 서버와 달리 별도 프로세스를
-실행하지 않으며, 에이전트가 작업에 맞춰 활성화하는 지침 모음입니다.
-
-플러그인은 로드될 때 프로세스 내에 번들 스킬 8개를 등록합니다. 스킬 파일을
-디스크에 복사하지 않으며, 업데이트는 재시작 후 적용됩니다.
-`~/.config/opencode/skills/`에 같은 이름의 스킬 디렉터리가 있으면
-번들 버전보다 로컬 스킬을 우선 사용합니다.
-
-| 스킬 | 용도 | 기본 에이전트 | 호출 방법 |
-|:----:|------|---------------|-----------|
-| <img src="img/skills/codemap.webp" width="120" alt="Codemap artifact"><br>[`codemap`](src/skills/codemap/SKILL.md) | 코드베이스 전체를 다시 읽지 않고 구조를 파악하도록 돕는 계층형 코드맵 | `orchestrator` | `run codemap` |
-| <img src="img/skills/deepwork.webp" width="120" alt="Deepwork artifact"><br>[`deepwork`](src/skills/deepwork/SKILL.md) | 단계별 검토를 포함한 대규모·고위험·다단계 코딩 워크플로 | `orchestrator` | `/deepwork <task>` |
-| <img src="img/skills/verification-planning.webp" width="120" alt="Verification Planning artifact"><br>[`verification-planning`](src/skills/verification-planning/SKILL.md) | 단순하지 않은 변경에 앞서 프로젝트에 맞는 검증 방법과 근거를 계획 | `orchestrator` | 단순하지 않은 작업 전에 자동 활성화 |
-| <img src="img/skills/simplify.webp" width="120" alt="Simplify artifact"><br>[`simplify`](src/skills/simplify/SKILL.md) | 기존 동작을 유지하면서 코드를 단순화해 가독성과 유지보수성을 개선 | `oracle` | 단순화를 요청하거나 코드 검토 중 활성화 |
-| <img src="img/skills/worktrees.webp" width="120" alt="Worktrees artifact"><br>[`worktrees`](src/skills/worktrees/SKILL.md) | Git worktree로 고위험·병렬 작업을 위한 안전하고 독립된 작업 공간 구성 | `orchestrator` | `work in a worktree` |
-| <img src="img/skills/clonedeps.webp" width="120" alt="Clonedeps artifact"><br>[`clonedeps`](src/skills/clonedeps/SKILL.md) | 에이전트가 라이브러리 내부를 검사하도록 의존성 소스를 로컬에 복제 | `orchestrator` | `clone dependencies` |
-| <img src="img/skills/reflect.webp" width="120" alt="Reflect artifact"><br>[`reflect`](src/skills/reflect/SKILL.md) | 작업 과정에서 반복되는 불편을 재사용 가능한 스킬, 에이전트 또는 설정으로 해결 | `orchestrator` | `/reflect` |
-| <img src="img/skills/oh-my-opencode-slim.webp" width="120" alt="oh-my-opencode-slim artifact"><br>[`oh-my-opencode-slim`](src/skills/oh-my-opencode-slim/SKILL.md) | 플러그인 설정 자체를 안전하게 구성하고 개선 | `orchestrator` | 설정 조정을 요청 |
-
-에이전트는 사용 권한을 부여받은 스킬만 활성화할 수 있습니다.
-`~/.config/opencode/oh-my-opencode-slim.json`의 에이전트별 `skills` 배열에서
-허용할 스킬을 지정하세요. 스킬 이름을 나열하거나, `"*"`로 전체를 허용하고
-`"!skill-name"`으로 특정 스킬을 제외할 수 있습니다.
-
-자세한 내용은 **[스킬 문서](docs/skills.md)**를 참고하세요. 그림이 포함된 개요는
-**[ohmyopencodeslim.com/skills](https://ohmyopencodeslim.com/skills)**에서 볼 수 있습니다.
-
----
-
-<a id="companion"></a>
-
-## 🖥️ Companion
-
-Companion은 선택적으로 사용하는 데스크톱 플로팅 상태 창입니다.
-현재 세션 상태와 작업 중인 에이전트를 실시간으로 표시하므로,
-백그라운드 작업을 한눈에 파악할 수 있습니다.
-
-<div align="center">
-  <img src="img/companion.gif" alt="활성 에이전트를 보여 주는 Companion" width="600">
-  <p><i>화면 왼쪽 아래에 표시되는 Companion.</i></p>
-</div>
-
-대화형 설치에서는 Companion 활성화 여부를 묻습니다. 기본값은 `no`입니다.
-자동 설치에서는 다음 옵션으로 활성화하세요.
-
-```bash
-bunx oh-my-opencode-slim@latest install --companion=yes
-```
-
-설정, 위치, 크기, 설치에 관한 자세한 내용은 **[Companion 문서](docs/companion.md)**를 참고하세요.
-
----
-
 ## 📚 문서
 
-설치 문서부터 시작한 뒤, 필요한 기능이나 설정, 예시 프리셋 문서를 참고하세요.
+이 섹션을 지도로 활용하세요. 설치부터 시작한 뒤, 필요에 따라 기능, 설정, 예시 프리셋으로 이동하세요.
+
+### 🚀 시작하기
+
+| 문서 | 내용 |
+|-----|------|
+| **[Installation Guide](docs/installation.md)** | 플러그인 설치, CLI 플래그 사용, 설정 초기화, 설치 문제 해결 |
 
 <a id="features-and-workflows"></a>
 
-### ✨ 기능과 워크플로
+### ✨ 기능 & 워크플로우
 
 | 문서 | 내용 |
 |-----|------|
-| **[Council](docs/council.md)** | 키워드로 Orchestrator의 Council 모드를 활성화해 여러 모델을 병렬 실행하고 답변을 종합 |
-| **[사용자 지정 에이전트](docs/configuration.md#custom-agents)** | 프롬프트, 모델, MCP 접근 권한, Orchestrator 위임 규칙을 지정해 전문 에이전트 정의 |
-| **[ACP 에이전트](docs/acp-agents.md)** | Claude Code ACP, Gemini ACP 등 Agent Client Protocol(ACP) 호환 외부 에이전트에 작업을 위임하고, 도구 실행과 계획 진행 상황을 터미널 UI(TUI)에서 실시간으로 확인 |
-| **[멀티플렉서 통합](docs/multiplexer-integration.md)** | Tmux, Zellij, Herdr, cmux, kitty 또는 WezTerm 분할 창에서 에이전트 작업을 실시간으로 확인 |
+| **[Council](docs/council.md)** | `@council`로 여러 모델을 병렬 실행하고 하나의 답변으로 종합 |
+| **[Multiplexer Integration](docs/multiplexer-integration.md)** | Tmux 또는 Zellij 페인에서 에이전트 작업을 실시간으로 확인 |
+| **[Session Management](docs/session-management.md)** | 단축 별칭으로 최근 자식 에이전트 세션을 재사용하여 처음부터 다시 시작하지 않기 |
+| **[Session Goal](docs/session-goal.md)** | `/goal`로 세션 목표를 고정하여 투두, 위임, 검증이 정렬되게 유지 |
+| **[Todo Continuation](docs/todo-continuation.md)** | 쿨다운과 안전 검사를 통해 오케스트레이터 세션 자동 이어서 진행 |
+| **[Preset Switching](docs/preset-switching.md)** | `/preset`으로 런타임에 에이전트 모델 프리셋 전환 |
+| **[Custom Agents](docs/configuration.md#custom-agents)** | 커스텀 프롬프트, 모델, MCP 접근, Orchestrator 위임 규칙으로 커스텀 전문 에이전트 정의 |
+| **[Subtask](docs/subtask.md)** | `/subtask`로 제한된 자식 워커를 실행하고 메인 세션에 구조화된 요약 반환 |
 | **[Codemap](docs/codemap.md)** | 계층형 코드맵을 생성하여 대규모 코드베이스를 빠르게 파악 |
-| **[Clonedeps](docs/clonedeps.md)** | 선택한 의존성 소스를 Git 추적에서 제외된 로컬 작업 공간에 복제해 내부 구현 확인 |
-| **[Worktrees](docs/worktrees.md)** | `.slim/worktrees/`의 독립된 작업 공간에서 병렬·고위험 코딩 작업 수행 |
-| **[프리셋 전환](docs/preset-switching.md)** | `/preset`으로 실행 중에 에이전트 모델 프리셋 전환 |
-| **[Interview](docs/interview.md)** | 브라우저 기반 질의응답으로 아직 구체화되지 않은 아이디어를 구조화된 마크다운 명세로 변환 |
-| **[Companion](docs/companion.md)** | 파싱, 도움말, 타입을 위한 플로팅 창 Companion |
+| **[Clonedeps](docs/clonedeps.md)** | 선택한 의존성 소스를 무시된 로컬 워크스페이스에 복제하여 검사 |
+| **[Interview](docs/interview.md)** | 브라우저 기반 Q&A 흐름을 통해 거친 아이디어를 구조화된 마크다운 명세로 변환 |
+| **[Divoom Display](docs/divoom.md)** | 오케스트레이터와 전문 에이전트 활동을 Divoom MiniToo 블루투스 디스플레이에 미러링 |
 
-### ⚙️ 설정과 참고 문서
+### ⚙️ 설정 & 레퍼런스
 
 | 문서 | 내용 |
 |-----|------|
-| **[설치 가이드](docs/installation.md)** | 플러그인 설치, 명령줄 인터페이스(CLI) 옵션 사용, 설정 초기화, 설치 문제 해결 |
-| **[OpenCode v2 호환성](docs/opencode-v2-compatibility.md)** | `opencode2`에서 플러그인 실행, 기능 지원표, v2.0.x 호환 기준, 버전 고정 |
-| **[설정](docs/configuration.md)** | 설정 파일 위치, 주석을 지원하는 JSON(JSONC), 프롬프트 재정의, 전체 옵션 설명 |
-| **[마켓플레이스](docs/marketplace.md)** | 마켓플레이스 에이전트 패키지 설치, 확인, 활성화, 업데이트 |
-| **[프로젝트별 사용자 지정](docs/project-local-customization.md)** | 저장소별 사용자 지정 에이전트, 프롬프트 재정의, 에이전트별 스킬 및 설정 우선순위 |
-| **[백그라운드 오케스트레이션](docs/background-orchestration.md)** | 기본 백그라운드 서브에이전트 기능을 활용하는 작업 배정 중심의 Orchestrator 운영 방식 |
-| **[유지보수 가이드](docs/maintainers.md)** | 이슈 분류 규칙, 라벨 의미, 지원 요청 전달 경로, 저장소 유지보수 워크플로 |
-| **[스킬](docs/skills.md)** | `simplify`, `codemap`, `clonedeps`, `deepwork`, `verification-planning`, `reflect`, `worktrees`, `oh-my-opencode-slim` 등 번들 스킬 |
-| **[MCPs](docs/mcps.md)** | `context7`, `gh_grep` 및 에이전트별 MCP 권한 동작 방식 |
-| **[도구](docs/tools.md)** | `webfetch`, LSP 도구, 코드 검색, 포매터 등 내장 도구 기능 |
+| **[Configuration](docs/configuration.md)** | 설정 파일 위치, JSONC 지원, 프롬프트 오버라이드, 전체 옵션 레퍼런스 |
+| **[Maintainer Guide](docs/maintainers.md)** | 이슈 트리아지 규칙, 라벨 의미, 지원 라우팅, 저장소 유지보수 워크플로우 |
+| **[Skills](docs/skills.md)** | `simplify`, `codemap`, `clonedeps` 등 번들된 스킬 |
+| **[MCPs](docs/mcps.md)** | `websearch`, `context7`, `grep_app` 및 에이전트별 MCP 권한 동작 방식 |
+| **[Tools](docs/tools.md)** | `webfetch`, LSP 도구, 코드 검색, 포매터 등 내장 도구 기능 |
+
+### 💡 프리셋
+
+| 문서 | 내용 |
+|-----|------|
+| **[Author's Preset](docs/authors-preset.md)** | 작성자의 일상적인 혼합 프로바이더 설정 |
+| **[$30 Preset](docs/thirty-dollars-preset.md)** | 월 약 $30 예산의 혼합 프로바이더 설정 |
+| **[OpenCode Go Preset](docs/opencode-go-preset.md)** | 인스톨러가 생성하는 번들 `opencode-go` 프리셋 |
 
 ---
 
@@ -654,7 +535,7 @@ bunx oh-my-opencode-slim@latest install --companion=yes
   <p><sub>병합된 모든 기여는 이 영역에 흔적을 남깁니다.</sub></p>
 
   <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-[![All Contributors](https://img.shields.io/badge/all_contributors-85-orange.svg?style=flat-square)](#contributors-)
+[![All Contributors](https://img.shields.io/badge/all_contributors-53-orange.svg?style=flat-square)](#contributors-)
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
 </div>
 
@@ -735,50 +616,6 @@ bunx oh-my-opencode-slim@latest install --companion=yes
       <td align="center" valign="top" width="16.66%"><a href="https://github.com/yolo2h"><img src="https://avatars.githubusercontent.com/u/10754850?v=4?s=100" width="100px;" alt="Yolo"/><br /><sub><b>Yolo</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=yolo2h" title="Code">💻</a></td>
       <td align="center" valign="top" width="16.66%"><a href="https://github.com/xinxingi"><img src="https://avatars.githubusercontent.com/u/49302071?v=4?s=100" width="100px;" alt="XinXing"/><br /><sub><b>XinXing</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=xinxingi" title="Code">💻</a></td>
       <td align="center" valign="top" width="16.66%"><a href="https://github.com/eltociear"><img src="https://avatars.githubusercontent.com/u/22633385?v=4?s=100" width="100px;" alt="Ikko Eltociear Ashimine"/><br /><sub><b>Ikko Eltociear Ashimine</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=eltociear" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/dev-wantap"><img src="https://avatars.githubusercontent.com/u/69743540?v=4?s=100" width="100px;" alt="GWANWOO KIM"/><br /><sub><b>GWANWOO KIM</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=dev-wantap" title="Code">💻</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/OmerFarukOruc"><img src="https://avatars.githubusercontent.com/u/7347742?v=4?s=100" width="100px;" alt="Omer Faruk Oruc"/><br /><sub><b>Omer Faruk Oruc</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=OmerFarukOruc" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://khallaf.uk/"><img src="https://avatars.githubusercontent.com/u/51155980?v=4?s=100" width="100px;" alt="Omar Mohamed Khallaf"/><br /><sub><b>Omar Mohamed Khallaf</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=omar-mohamed-khallaf" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/Qesire"><img src="https://avatars.githubusercontent.com/u/102657430?v=4?s=100" width="100px;" alt="Knowingthesea_Qesire"/><br /><sub><b>Knowingthesea_Qesire</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=Qesire" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="http://www.flyinghail.net/"><img src="https://avatars.githubusercontent.com/u/157430?v=4?s=100" width="100px;" alt="FENG Hao"/><br /><sub><b>FENG Hao</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=flyinghail" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/smatheusblu"><img src="https://avatars.githubusercontent.com/u/5666794?v=4?s=100" width="100px;" alt="Matheus Nogueira Silveira"/><br /><sub><b>Matheus Nogueira Silveira</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=smatheusblu" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/sktr"><img src="https://avatars.githubusercontent.com/u/44969514?v=4?s=100" width="100px;" alt="sktr"/><br /><sub><b>sktr</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=sktr" title="Code">💻</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/bobbyunknown"><img src="https://avatars.githubusercontent.com/u/62272380?v=4?s=100" width="100px;" alt="Insomnia"/><br /><sub><b>Insomnia</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=bobbyunknown" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/andrescastane"><img src="https://avatars.githubusercontent.com/u/13487870?v=4?s=100" width="100px;" alt="Andres Castañeda"/><br /><sub><b>Andres Castañeda</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=andrescastane" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://zaradacht.com/"><img src="https://avatars.githubusercontent.com/u/24251016?v=4?s=100" width="100px;" alt="Zaradacht Taifour (Zack)"/><br /><sub><b>Zaradacht Taifour (Zack)</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=Zaradacht" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/fslse"><img src="https://avatars.githubusercontent.com/u/90545544?v=4?s=100" width="100px;" alt="fslse"/><br /><sub><b>fslse</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=fslse" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/linze0721"><img src="https://avatars.githubusercontent.com/u/178997622?v=4?s=100" width="100px;" alt="萧瑟"/><br /><sub><b>萧瑟</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=linze0721" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/SisyphusZheng"><img src="https://avatars.githubusercontent.com/u/146103794?v=4?s=100" width="100px;" alt="Zhi"/><br /><sub><b>Zhi</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=SisyphusZheng" title="Code">💻</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/824156793"><img src="https://avatars.githubusercontent.com/u/19755784?v=4?s=100" width="100px;" alt="lilili"/><br /><sub><b>lilili</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=824156793" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="http://mikehenke.com/"><img src="https://avatars.githubusercontent.com/u/119844?v=4?s=100" width="100px;" alt="Mike Henke"/><br /><sub><b>Mike Henke</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=mhenke" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/imVinayPandya"><img src="https://avatars.githubusercontent.com/u/5011197?v=4?s=100" width="100px;" alt="Vinay Pandya"/><br /><sub><b>Vinay Pandya</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=imVinayPandya" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/s-shank"><img src="https://avatars.githubusercontent.com/u/241541918?v=4?s=100" width="100px;" alt="Shank"/><br /><sub><b>Shank</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=s-shank" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://rgutzen.github.io/"><img src="https://avatars.githubusercontent.com/u/16289604?v=4?s=100" width="100px;" alt="Robin Gutzen"/><br /><sub><b>Robin Gutzen</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=rgutzen" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/dragon-Elec"><img src="https://avatars.githubusercontent.com/u/197374270?v=4?s=100" width="100px;" alt="Yash"/><br /><sub><b>Yash</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=dragon-Elec" title="Code">💻</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/Jiajun0413"><img src="https://avatars.githubusercontent.com/u/184531967?v=4?s=100" width="100px;" alt="Liu Jiajun"/><br /><sub><b>Liu Jiajun</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=Jiajun0413" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/umi008"><img src="https://avatars.githubusercontent.com/u/200843810?v=4?s=100" width="100px;" alt="Ulises Millán"/><br /><sub><b>Ulises Millán</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=umi008" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/HighColdHC"><img src="https://avatars.githubusercontent.com/u/35870222?v=4?s=100" width="100px;" alt="HighColdHC"/><br /><sub><b>HighColdHC</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=HighColdHC" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://hardcore.engineer/about"><img src="https://avatars.githubusercontent.com/u/401815?v=4?s=100" width="100px;" alt="Stephan Schielke"/><br /><sub><b>Stephan Schielke</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=stephanschielke" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/DanMaly"><img src="https://avatars.githubusercontent.com/u/69809112?v=4?s=100" width="100px;" alt="Daniel Maly"/><br /><sub><b>Daniel Maly</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=DanMaly" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/Chewji9875"><img src="https://avatars.githubusercontent.com/u/126886556?v=4?s=100" width="100px;" alt="Chewji"/><br /><sub><b>Chewji</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=Chewji9875" title="Code">💻</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/DanielMaly"><img src="https://avatars.githubusercontent.com/u/1443921?v=4?s=100" width="100px;" alt="Daniel Maly"/><br /><sub><b>Daniel Maly</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=DanielMaly" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://giuseppebellamacina.com/"><img src="https://avatars.githubusercontent.com/u/102151655?v=4?s=100" width="100px;" alt="Giuseppe Bellamacina"/><br /><sub><b>Giuseppe Bellamacina</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=GiuseppeBellamacina" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/Zhanyuanium"><img src="https://avatars.githubusercontent.com/u/92024923?v=4?s=100" width="100px;" alt="Zhanyuanium"/><br /><sub><b>Zhanyuanium</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=Zhanyuanium" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/kaze-gif"><img src="https://avatars.githubusercontent.com/u/114116466?v=4?s=100" width="100px;" alt="かぜ"/><br /><sub><b>かぜ</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=kaze-gif" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/tsankotsanev"><img src="https://avatars.githubusercontent.com/u/76694544?v=4?s=100" width="100px;" alt="Tsanko Tsanev"/><br /><sub><b>Tsanko Tsanev</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=tsankotsanev" title="Code">💻</a></td>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/shixi-li"><img src="https://avatars.githubusercontent.com/u/40780706?v=4?s=100" width="100px;" alt="cyril"/><br /><sub><b>cyril</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=shixi-li" title="Code">💻</a></td>
-    </tr>
-    <tr>
-      <td align="center" valign="top" width="16.66%"><a href="https://github.com/pmolinal"><img src="https://avatars.githubusercontent.com/u/1817596?v=4?s=100" width="100px;" alt="Patricio Molina"/><br /><sub><b>Patricio Molina</b></sub></a><br /><a href="https://github.com/alvinunreal/oh-my-opencode-slim/commits?author=pmolinal" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>

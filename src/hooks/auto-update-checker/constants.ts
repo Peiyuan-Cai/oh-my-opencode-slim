@@ -2,23 +2,16 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { getOpenCodeConfigPaths } from '../../cli/config-manager';
 
-export { INSTALLER_MANAGED_PLUGIN_OPTION } from '../../plugin-entry';
-
 export const PACKAGE_NAME = 'oh-my-opencode-slim';
 export const NPM_REGISTRY_URL = `https://registry.npmjs.org/-/package/${PACKAGE_NAME}/dist-tags`;
 export const NPM_PACKAGE_URL = `https://registry.npmjs.org/${PACKAGE_NAME}`;
 export const NPM_FETCH_TIMEOUT = 5000;
 
-/**
- * Resolves OpenCode's plugin cache root. OpenCode uses `XDG_CACHE_HOME` when
- * set, otherwise `~/.cache`, followed by `opencode` on every platform.
- * Keep this in sync with `getOpenCodePluginCacheDir()` in
- * `src/cli/config-io.ts`.
- */
 function getCacheDir(): string {
-  const cacheHome =
-    process.env.XDG_CACHE_HOME?.trim() || path.join(os.homedir(), '.cache');
-  return path.join(cacheHome, 'opencode');
+  if (process.platform === 'win32') {
+    return path.join(process.env.LOCALAPPDATA ?? os.homedir(), 'opencode');
+  }
+  return path.join(os.homedir(), '.cache', 'opencode');
 }
 
 /** The directory used by OpenCode to cache node_modules for plugins. */

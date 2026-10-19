@@ -1,23 +1,8 @@
 # Skills
 
-Skills are specialized capabilities and workflows you can assign to agents.
-Unlike MCPs (which are running servers), skills are **prompt-based instructions**
-injected into an agent's system prompt to guide decisions, workflows, and, when
-relevant, tool use.
+Skills are specialized capabilities you can assign to agents. Unlike MCPs (which are running servers), skills are **prompt-based tool configurations** — instructions injected into an agent's system prompt that describe how to use a particular tool.
 
-Bundled skills are registered in-process by the plugin at load (never copied to
-disk); plugin updates apply on the next OpenCode restart. Skills listed in
-`disabled_skills` are not registered. To override a bundled skill, create a
-same-named directory under `~/.config/opencode/skills/` — directory skills take
-precedence over the bundled registration.
-
----
-
-## Verification and Review Budget
-
-Use a proportionate final-state verification plan for each change. Run checks
-required by repository and release instructions; add independent review or
-broader evidence only when the change's risk or uncertainty warrants it.
+Bundled skills are installed by the `oh-my-opencode-slim` installer.
 
 ---
 
@@ -30,14 +15,6 @@ broader evidence only when the change's risk or uncertainty warrants it.
 | [`simplify`](#simplify) | Behavior-preserving code simplification | `oracle` |
 | [`codemap`](#codemap) | Repository codemap generation | `orchestrator` |
 | [`clonedeps`](#clonedeps) | Local dependency source cloning | `orchestrator` |
-| [`deepwork`](#deepwork) | Heavy/complex coding sessions workflow | `orchestrator` |
-| [`verification-planning`](#verification-planning) | Design project-specific evidence before implementation | `orchestrator` |
-| [`step-back`](#step-back) | Pause snowballing patches and reassess direction | `orchestrator` |
-| [`deanchor`](#deanchor) | Generalize from examples instead of copying them | `orchestrator` |
-| [`ai-estimates`](#ai-estimates) | Estimate task duration for a human working with AI | `orchestrator` |
-| [`reflect`](#reflect) | Review repeated work and suggest reusable workflow improvements | `orchestrator` |
-| [`worktrees`](#worktrees) | Safe Git worktree lane management | `orchestrator` |
-| [`oh-my-opencode-slim`](#oh-my-opencode-slim) | Plugin configuration and self-improvement guidance | `orchestrator` |
 
 ---
 
@@ -62,10 +39,10 @@ Source: adapted from Addy Osmani's `code-simplification` skill and bundled local
 **How to use:** Ask the Orchestrator to `run codemap`. It automatically detects whether to initialize a new map or update an existing one.
 
 **Why it's useful:**
-- **Instant onboarding** - understand unfamiliar codebases in seconds
-- **Efficient context** - agents read architectural summaries, saving tokens and improving accuracy
-- **Change detection** - only modified folders are re-analyzed
-- **Timeless documentation** - focuses on high-level design, not implementation details
+- **Instant onboarding** — understand unfamiliar codebases in seconds
+- **Efficient context** — agents read architectural summaries, saving tokens and improving accuracy
+- **Change detection** — only modified folders are re-analyzed
+- **Timeless documentation** — focuses on high-level design, not implementation details
 
 See **[Codemap Skill](codemap.md)** for full documentation including manual commands and technical details.
 
@@ -79,11 +56,11 @@ See **[Codemap Skill](codemap.md)** for full documentation including manual comm
 source repositories into `.slim/clonedeps/repos/` so OpenCode can inspect library
 internals while keeping cloned code out of git.
 
-The skill is assigned to `orchestrator`. The orchestrator may ask `@explorer`
+The skill is assigned to `orchestrator`. The orchestrator may ask `@librarian`
 to identify important dependencies and resolve official repository URLs/tags,
 then asks for approval before cloning with direct git/filesystem operations.
 There is intentionally no helper script; dependency discovery and ref validation
-are handled by the orchestrator/explorer workflow so the skill works across
+are handled by the orchestrator/librarian workflow so the skill works across
 languages and repository types.
 
 Before planning, the orchestrator checks `.slim/clonedeps.json` and reuses
@@ -104,231 +81,6 @@ See **[Clonedeps](clonedeps.md)** for the full workflow and file layout.
 
 ---
 
-## deepwork
-
-**Heavy/complex coding sessions and large modifications workflow.**
-
-`deepwork` is an orchestrator workflow for building a whole product or subsystem, deep architectural work, and complex refactoring. It works like a painter: the whole picture first, then more detail in each pass, with one review gate per pass. It is surfaced two ways: as a resident bundled skill (so the model can auto-activate it when a task clearly warrants it) and via the self-contained `/deepwork <task>` command, which injects the full bundled `SKILL.md` instructions directly. The command does not depend on skill registration — users who prefer minimal resident context can list `deepwork` in `disabled_skills` without losing `/deepwork`. To also remove the command, list `deepwork` in `disabled_commands`.
-
-Start it directly with:
-
-```text
-/deepwork <heavy coding task>
-```
-
-**How it works:**
-1. Work in passes over the whole product: a thin end-to-end **sketch**, then
-   **structure** (real data model, boundaries, main failure paths), then
-   **detail** (hardening, crash recovery, edge cases, polish). Security and
-   money/data correctness are never deferred.
-2. Each pass has a one-line goal and a few lanes with disjoint write scopes.
-   @designer and @fixer are separate lanes from the start; if any lanes are
-   risky (state, money, concurrency, crash recovery, destructive operations),
-   one short @oracle design review of the pass plan covers them before code.
-3. Lanes report changed files, exact commands with exit codes, and what is
-   unverified; the orchestrator accepts after checking one decisive artifact.
-   Lanes run focused checks; the broad suite runs once per pass.
-4. Each pass ends with broad validation, one @oracle gate scoped to that
-   pass's fidelity (later-pass findings go to a known-issues list), a commit,
-   and a step back: run the whole product, re-plan the next pass, and
-   reorganize code that grew huge or tangled.
-5. Runs autonomously to the end by default; asks only when truly blocked
-   (credentials, paid commitments, irreversible or public actions, no safe
-   default) or when the task asks for check-ins.
-
-**State** (kept small; for resuming after compaction, not activity logging):
-- Router head `.slim/deepwork/<session-id>.md`: `status:` and `slug:` only.
-- Progress file `.slim/deepwork/<task-slug>/progress.md`: ~40 lines of current
-  state — pass, goal, next step, decisions, running lanes, ranked known
-  issues. No activity log; history lives in git commits and gate verdicts.
-- Topic files only for gate verdicts and research, one per topic.
-- Before creating state, `.gitignore` gets `.slim/deepwork/` and `.ignore` gets
-  `!.slim/deepwork/` plus `!.slim/deepwork/**` (only missing entries).
-
-**When to use:** Large-scale refactoring, multi-file architectural changes, complex feature development spanning modules.
-
-**When NOT to use:** Simple single-file edits, trivial bug fixes, quick one-off changes.
-
----
-
-## verification-planning
-
-**Design project-specific evidence before non-trivial implementation.**
-
-`verification-planning` is an orchestrator-only skill for planning how a
-non-trivial implementation, bug fix, refactor, multi-layer change, or externally
-visible behavior will be proven before work begins. It starts with the claim to
-establish, its uncertainty and failure modes, then generates evidence paths from
-the system's controllable inputs, state transitions, boundaries, artifacts,
-invariants, reversibility, and repeatability rather than defaulting to familiar
-methods.
-
-When the system cannot expose decisive truth clearly enough, the skill may add a
-verification affordance: the smallest temporary or durable capability that makes
-the relevant state controllable, observable, repeatable, and diagnosable for an
-agent. This lets the agent improve the system's legibility instead of accepting
-weak, indirect evidence.
-
-It selects the narrowest path by credibility, signal quality, cost, safety, and
-independent inspectability or repeatability. When relevant project facilities or
-constraints are unfamiliar or rapidly changing, it asks `@explorer` for focused
-official and project-specific research before deciding; it does not seek generic
-testing advice or research when current evidence is already decisive.
-
-**When NOT to use:** tiny mechanical edits. It complements ordinary verification
-and deepwork, does not prescribe a default mechanism, and requires approval for
-verification-only dependencies, persistent instrumentation, production debug
-surfaces, or structural changes. Temporary support is removed; durable support
-needs a clear justification. Completed work reports what was established and its
-limitations.
-
----
-
-## step-back
-
-**Pause snowballing patches and reassess direction before continuing.**
-
-`step-back` is an orchestrator-only skill for the moment a task keeps growing
-through patches: repeated fixes, workarounds, compatibility shims, or a new path
-built beside an old one. Instead of quietly pushing on, the agent checks whether
-it would build the thing this way from scratch. If not, it briefly tells the
-user the current direction, why it is drifting, a cleaner alternative, and its
-recommendation, then lets the user decide.
-
-**When NOT to use:** small, clean, bounded edits where the current direction is
-still proportional.
-
----
-
-## deanchor
-
-**Generalize from examples instead of copying them with light edits.**
-
-`deanchor` is an orchestrator-only skill for requests that include examples,
-samples, templates, or reference outputs. Examples weight a model's output
-heavily, so it tends to return one of them slightly reworded. This skill has
-the agent separate what the examples share (intent, constraints, taste) from
-what is incidental (phrasing, length, topic, order), then produce something
-original at that level and check it is not a light edit of any one example.
-
-**When NOT to use:** when the user explicitly wants an example's exact format
-reproduced.
-
----
-
-## ai-estimates
-
-**Estimate task duration for a human working with AI, not alone.**
-
-`ai-estimates` is an orchestrator-only skill for questions about how long a
-task will take, whether coding, writing, research, analysis, design, or data
-work. Models learned their sense of duration from human-only work, so they
-default to estimates like "a few weeks" for work AI can draft in hours. This
-skill has the agent price AI-capable work at AI speed (plus review and fixes)
-and human or external bottlenecks (decisions, access, approvals, real-world
-testing, waiting on others) at human speed, then give a range and say which
-part dominates.
-
-**When NOT to use:** questions that are not about duration or effort.
-
----
-
-## reflect
-
-**Learn from repeated work and suggest practical workflow improvements.**
-
-`reflect` is an orchestrator-only workflow skill for reviewing recent work,
-finding repeated workflow friction, and recommending the smallest useful reusable
-asset. It may suggest a skill, custom agent, command, config rule, prompt rule,
-MCP permission change, or project playbook - but only when there is enough
-evidence.
-
-Use it directly with:
-
-```text
-/reflect
-/reflect release workflow and checks
-```
-
-You can also use natural prompts such as:
-
-```text
-reflect on my recent workflows
-find repeated work worth turning into reusable instructions
-suggest skills or agent config improvements from what I keep doing
-```
-
-Listing `reflect` in `disabled_skills` also disables the `/reflect` command;
-the command is not registered when the skill is disabled.
-
-Reflect is intentionally conservative. If no repeated workflow is strong enough,
-it should recommend creating nothing instead of manufacturing new assets.
-
-**When to use:** recurring workflow friction, repeated manual processes, repeated
-agent-routing preferences, or prompts/config rules that you keep re-explaining.
-
-**When NOT to use:** one-off implementation tasks, speculative agent creation,
-or broad self-improvement ideas with no usage evidence.
-
----
-
-## worktrees
-
-**Safe Git worktree lane management for isolated coding.**
-
-`worktrees` is an orchestrator-only skill for managing Git worktrees as safe,
-isolated coding lanes. Instead of polluting your current branch or juggling stash
-state, the Orchestrator can set up lanes under `.slim/worktrees/<slug>/` and
-track them in `.slim/worktrees.json`.
-
-Other agents can be delegated tasks inside the worktree lane, but the Orchestrator coordinates the lifecycle, validation, and final integration.
-
-Safety defaults:
-- Pre-flight check on Git repo status and dirty worktrees.
-- Strict confirmation gates for all git modifications (`worktree add/remove`, `merge`, `rebase`, `cherry-pick`, `reset --hard`, branch operations).
-- Branch names default to `omo/<slug>` but respect custom user patterns.
-- Use a proportionate final-state verification plan before final integration,
-  including checks required by repository and release instructions.
-
-See **[Worktrees](worktrees.md)** for the detailed safety protocol.
-
----
-
-## oh-my-opencode-slim
-
-**Configure, customize, and safely improve this plugin setup.**
-
-`oh-my-opencode-slim` is an orchestrator-only skill that teaches agents how to
-configure the plugin itself: model presets, custom agents, agent prompts,
-`orchestratorPrompt` delegation hints, skills, MCP permissions, optional agents,
-and related OpenCode config files.
-
-It is installed by default with the bundled skills and is available to the
-Orchestrator through the default `skills: ["*"]` configuration.
-
-The skill also tells the Orchestrator to notice repeatable workflow friction and
-suggest safe config or prompt improvements. It must ask before changing config or
-prompts unless the user explicitly requested the exact edit, and it reminds users
-that OpenCode may need a restart for config, prompt, agent, skill, MCP, or plugin
-changes to take effect.
-
-Typical requests:
-
-```text
-Tune my oh-my-opencode-slim models for lower cost.
-Add a custom API reviewer agent.
-Make the Orchestrator more conservative about parallel writer agents.
-Help me configure MCP access for Explorer only.
-```
-
-After config changes, expect guidance like:
-
-```text
-This should apply on the next OpenCode run; restart OpenCode if you need it immediately.
-```
-
----
-
 ## Skills Assignment
 
 Control which skills each agent can use in `~/.config/opencode/oh-my-opencode-slim.json` (or `.jsonc`):
@@ -342,8 +94,7 @@ Control which skills each agent can use in `~/.config/opencode/oh-my-opencode-sl
 | `["!*"]` | Deny all skills |
 
 **Rules:**
-- `*` grants access to registered skills, subject to global disables and
-  native permissions
+- `*` expands to all available installed skills
 - `!item` excludes a specific skill
 - Conflicts (e.g. `["a", "!a"]`) → deny wins (principle of least privilege)
 
@@ -369,30 +120,3 @@ Control which skills each agent can use in `~/.config/opencode/oh-my-opencode-sl
   }
 }
 ```
-
-### Adding or removing skills on top of an inherited list
-
-`skills` is replaced wholesale when multiple config layers (user, project, preset) define it. To adjust an inherited list instead, use the `skills_add` / `skills_remove` directives. They are folded into the effective `skills` array during config resolution and stripped afterwards, so agents and hooks only ever see plain `skills`:
-
-| Field | Type | Meaning |
-|-------|------|---------|
-| `skills_add` | string[] | Skill names appended to the effective list (after `skills`) |
-| `skills_remove` | string[] | Skill names removed from the effective list; removal wins over addition |
-
-```json
-{
-  "agents": {
-    "oracle": {
-      "skills_add": ["nexus-backend"],
-      "skills_remove": ["deepwork"]
-    }
-  }
-}
-```
-
-**Rules:**
-- Duplicates are removed (first occurrence wins) before removals are applied
-- If the result contains `"*"`, each removed name is appended as `"!<name>"` so the exclusion beats the wildcard grant
-- On an agent without a `skills` list, directives resolve against that agent's default grants (orchestrator: all skills), so `skills_add` keeps the defaults and appends, and `skills_remove` prunes from them
-- `skills_add` never overrides an inherited exclusion: adding a name that the effective list already excludes (as `"!<name>"`) is a no-op. To re-allow it, lift the exclusion with a `skills_remove` entry of the form `"!<name>"`
-- A removal entry of the form `"!<name>"` removes the exclusion token itself (it lifts an existing exclusion); the `"*"` token is never expanded

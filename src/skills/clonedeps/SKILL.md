@@ -1,6 +1,6 @@
 ---
 name: clonedeps
-description: Clone important project dependency source code into an ignored local workspace so OpenCode can inspect library internals. Use when the user asks to clone dependencies, inspect dependency/source internals, understand SDK/framework behavior from source, debug library implementation details, or make core dependency repos locally readable. Do not use for ordinary API/docs questions where @explorer is enough.
+description: Clone important project dependency source code into an ignored local workspace so OpenCode can inspect library internals. Use when the user asks to clone dependencies, inspect dependency/source internals, understand SDK/framework behavior from source, debug library implementation details, or make core dependency repos locally readable. Do not use for ordinary API/docs questions where @librarian is enough.
 ---
 
 # Clonedeps Skill
@@ -10,7 +10,7 @@ locally readable to OpenCode.
 
 This is a workflow skill, not a command wrapper. Do not use a helper script for
 dependency detection, ref validation, cloning, status, or cleanup. The
-orchestrator and `@explorer` do the repo-specific thinking; the orchestrator
+orchestrator and `@librarian` do the repo-specific thinking; the orchestrator
 performs the approved filesystem/git operations directly.
 
 ## Workflow
@@ -21,17 +21,17 @@ First check whether `.slim/clonedeps.json` exists.
 
 If it exists:
 
-1. Read it before asking explorer for a new plan.
+1. Read it before asking librarian for a new plan.
 2. Check whether each listed `path` exists under `.slim/clonedeps/repos/`.
 3. Reuse existing cloned repos when they already satisfy the user's task.
-4. Only ask explorer for new recommendations if the existing manifest is
+4. Only ask librarian for new recommendations if the existing manifest is
    missing, stale, or insufficient for the current task.
 
 Do not rescan/re-plan from scratch when the manifest already has useful entries.
 
-### Step 2: Ask Explorer for the Clone Plan
+### Step 2: Ask Librarian for the Clone Plan
 
-Delegate dependency discovery and source resolution to `@explorer`.
+Delegate dependency discovery and source resolution to `@librarian`.
 
 Use this prompt:
 
@@ -70,7 +70,7 @@ Keep it small. Prefer 0–3 strong recommendations over 5 weak ones. If nothing
 clearly needs cloning, say so.
 ```
 
-Explorer should return a small plan with:
+Librarian should return a small plan with:
 
 - dependency name;
 - current version/range if discoverable;
@@ -90,7 +90,7 @@ are directly relevant to the active task.
 The orchestrator owns final approval. Before cloning:
 
 1. Verify refs manually where possible with `git ls-remote`.
-2. Prefer pinned tags or commit SHAs. If no exact tag exists, ask explorer to
+2. Prefer pinned tags or commit SHAs. If no exact tag exists, ask librarian to
    find the correct module-specific tag/commit or explain the fallback.
 3. Only use HTTPS GitHub/GitLab-style repository URLs by default. Reject
    `file://`, SSH URLs, local paths, URLs with embedded credentials, and private
@@ -100,37 +100,7 @@ The orchestrator owns final approval. Before cloning:
 5. Ask for confirmation before network cloning unless the user explicitly asked
    to clone immediately.
 
-### Step 4: Update Ignore Files
-
-Before cloning artifacts or cleaning cloned dependencies, inspect existing
-`.gitignore` and `.ignore`. Update the managed block in place when present;
-otherwise append it. Add only the missing exact lines below, never duplicate
-entries or modify unrelated rules. These blocks keep cloned artifacts git-local
-while the `.ignore` allowlist keeps them readable to OpenCode.
-
-`.gitignore`:
-
-```gitignore
-# BEGIN oh-my-opencode-slim clonedeps
-.slim/clonedeps/repos/
-# END oh-my-opencode-slim clonedeps
-```
-
-`.ignore`:
-
-```ignore
-# BEGIN oh-my-opencode-slim clonedeps
-!.slim/
-!.slim/clonedeps.json
-!.slim/clonedeps/
-!.slim/clonedeps/repos/
-!.slim/clonedeps/repos/**
-.slim/clonedeps/repos/**/.git/
-.slim/clonedeps/repos/**/.git/**
-# END oh-my-opencode-slim clonedeps
-```
-
-### Step 5: Clone Sources Manually
+### Step 4: Clone Sources Manually
 
 Create one folder per source repository under:
 
@@ -165,7 +135,7 @@ Safe manual git pattern:
 
 Do not run dependency install/build/test scripts from cloned repositories.
 
-### Step 6: Write Local State
+### Step 5: Write Local State
 
 Write `.slim/clonedeps.json` so future agents know what exists:
 
@@ -203,6 +173,33 @@ Do not add `.slim/clonedeps.json` to `.gitignore`. It is small, reviewable
 project metadata that can be committed. Only the cloned repository contents
 under `.slim/clonedeps/repos/` should be ignored.
 
+### Step 6: Update Ignore Files
+
+Update `.gitignore` with an idempotent marker block:
+
+```gitignore
+# BEGIN oh-my-opencode-slim clonedeps
+.slim/clonedeps/repos/
+# END oh-my-opencode-slim clonedeps
+```
+
+Update `.ignore` so OpenCode can read the cloned source while git still ignores
+it:
+
+```ignore
+# BEGIN oh-my-opencode-slim clonedeps
+!.slim/
+!.slim/clonedeps.json
+!.slim/clonedeps/
+!.slim/clonedeps/repos/
+!.slim/clonedeps/repos/**
+.slim/clonedeps/repos/**/.git/
+.slim/clonedeps/repos/**/.git/**
+# END oh-my-opencode-slim clonedeps
+```
+
+Only edit content inside these marker blocks.
+
 ### Step 7: Register Dependency Source in AGENTS.md
 
 After successful cloning, update the repository root `AGENTS.md` so future
@@ -220,9 +217,9 @@ sentence so future agents do not need an extra read just to know what is there:
 Read-only dependency source repositories are available under
 `.slim/clonedeps/repos/` for inspection. Do not edit these clones.
 
-- `.slim/clonedeps/repos/<safe-name>/` - `<repo>` at `<ref>`; <one sentence on
+- `.slim/clonedeps/repos/<safe-name>/` — `<repo>` at `<ref>`; <one sentence on
   why this source is useful>.
-- `.slim/clonedeps/repos/<safe-name-2>/` - `<repo>` at `<ref>`; <one sentence on
+- `.slim/clonedeps/repos/<safe-name-2>/` — `<repo>` at `<ref>`; <one sentence on
   why this source is useful>.
 ```
 

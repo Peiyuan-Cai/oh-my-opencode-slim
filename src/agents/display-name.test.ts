@@ -1,15 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { PluginConfig } from '../config';
-import { CouncilConfigSchema } from '../config/council-schema';
-import { RuntimeConfig } from '../config/runtime';
 import { createAgents, getAgentConfigs } from './index';
-
-const TEST_DIRECTORY = 'runtime-test-agents-display-name';
-function runtimeFor(config: PluginConfig | undefined = {}) {
-  RuntimeConfig.reset(TEST_DIRECTORY);
-  RuntimeConfig.init(TEST_DIRECTORY, config ?? {});
-  return RuntimeConfig.get(TEST_DIRECTORY);
-}
 
 describe('displayName', () => {
   test('stores displayName on agent when configured', () => {
@@ -19,11 +10,11 @@ describe('displayName', () => {
       },
     };
 
-    const agents = createAgents(runtimeFor(config));
+    const agents = createAgents(config);
     const explorer = agents.find((a) => a.name === 'explorer');
     expect(explorer?.displayName).toBe('researcher');
 
-    const sdkConfigs = getAgentConfigs(runtimeFor(config));
+    const sdkConfigs = getAgentConfigs(config);
     expect((sdkConfigs.explorer as { displayName?: string }).displayName).toBe(
       'researcher',
     );
@@ -36,7 +27,7 @@ describe('displayName', () => {
       },
     };
 
-    const agents = createAgents(runtimeFor(config));
+    const agents = createAgents(config);
     const orchestrator = agents.find((a) => a.name === 'orchestrator');
     const prompt = orchestrator?.config.prompt ?? '';
 
@@ -51,7 +42,7 @@ describe('displayName', () => {
       },
     };
 
-    const agents = createAgents(runtimeFor(config));
+    const agents = createAgents(config);
     const orchestrator = agents.find((a) => a.name === 'orchestrator');
     const prompt = orchestrator?.config.prompt ?? '';
 
@@ -67,7 +58,7 @@ describe('displayName', () => {
       },
     };
 
-    const agents = createAgents(runtimeFor(config));
+    const agents = createAgents(config);
     const orchestrator = agents.find((a) => a.name === 'orchestrator');
     const prompt = orchestrator?.config.prompt ?? '';
 
@@ -80,11 +71,11 @@ describe('displayName', () => {
     const config: PluginConfig = {
       agents: {
         explorer: { displayName: 'helper' },
-        designer: { displayName: 'helper' },
+        librarian: { displayName: 'helper' },
       },
     };
 
-    expect(() => createAgents(runtimeFor(config))).toThrow(
+    expect(() => createAgents(config)).toThrow(
       "Duplicate displayName 'helper' assigned to multiple agents",
     );
   });
@@ -93,11 +84,11 @@ describe('displayName', () => {
     const config: PluginConfig = {
       agents: {
         explorer: { displayName: 'advisor' },
-        designer: { displayName: ' @advisor ' },
+        librarian: { displayName: ' @advisor ' },
       },
     };
 
-    expect(() => createAgents(runtimeFor(config))).toThrow(
+    expect(() => createAgents(config)).toThrow(
       "Duplicate displayName 'advisor' assigned to multiple agents",
     );
   });
@@ -109,7 +100,7 @@ describe('displayName', () => {
       },
     };
 
-    expect(() => createAgents(runtimeFor(config))).toThrow(
+    expect(() => createAgents(config)).toThrow(
       "displayName 'oracle' conflicts with an agent name",
     );
   });
@@ -121,7 +112,7 @@ describe('displayName', () => {
       },
     };
 
-    expect(() => createAgents(runtimeFor(config))).toThrow(
+    expect(() => createAgents(config)).toThrow(
       "displayName 'oracle' conflicts with an agent name",
     );
   });
@@ -133,7 +124,7 @@ describe('displayName', () => {
       },
     };
 
-    expect(() => createAgents(runtimeFor(config))).toThrow(
+    expect(() => createAgents(config)).toThrow(
       /displayName.*conflicts with an agent name/,
     );
   });
@@ -145,7 +136,7 @@ describe('displayName', () => {
       },
     };
 
-    expect(() => createAgents(runtimeFor(config))).toThrow(
+    expect(() => createAgents(config)).toThrow(
       "displayName 'senior reviewer' must match /^[a-z][a-z0-9_-]*$/i",
     );
   });
@@ -157,7 +148,7 @@ describe('displayName', () => {
       },
     };
 
-    const agents = createAgents(runtimeFor(config));
+    const agents = createAgents(config);
     const explorer = agents.find((a) => a.name === 'explorer');
 
     expect(explorer?.displayName).toBe('researcher');
@@ -170,7 +161,7 @@ describe('displayName', () => {
       },
     };
 
-    const sdkConfigs = getAgentConfigs(runtimeFor(config)) as Record<
+    const sdkConfigs = getAgentConfigs(config) as Record<
       string,
       { hidden?: boolean; mode?: string }
     >;
@@ -191,7 +182,7 @@ describe('displayName', () => {
       },
     };
 
-    const sdkConfigs = getAgentConfigs(runtimeFor(config)) as Record<
+    const sdkConfigs = getAgentConfigs(config) as Record<
       string,
       { hidden?: boolean; mode?: string }
     >;
@@ -208,31 +199,14 @@ describe('displayName', () => {
   test('keeps internal-only council agents hidden even with displayName configured', () => {
     const config: PluginConfig = {
       disabled_agents: [],
-      council: CouncilConfigSchema.parse({
-        presets: { default: { alpha: { model: 'test/councillor' } } },
-      }),
       agents: {
         councillor: { displayName: 'reviewer' },
       },
     };
 
-    const sdkConfigs = getAgentConfigs(runtimeFor(config));
+    const sdkConfigs = getAgentConfigs(config);
 
     expect(sdkConfigs.reviewer).toBeUndefined();
     expect(sdkConfigs.councillor?.hidden).toBe(true);
-  });
-
-  test('keeps dynamic councillor-<seat> agents hidden from @ autocomplete', () => {
-    const config: PluginConfig = {
-      disabled_agents: [],
-      council: CouncilConfigSchema.parse({
-        presets: { default: { alpha: { model: 'test/councillor' } } },
-      }),
-    };
-
-    const sdkConfigs = getAgentConfigs(runtimeFor(config));
-
-    expect(sdkConfigs['councillor-alpha']?.hidden).toBe(true);
-    expect(sdkConfigs['councillor-alpha']?.mode).toBe('subagent');
   });
 });

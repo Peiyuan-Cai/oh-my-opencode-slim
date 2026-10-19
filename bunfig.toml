@@ -1,3 +1,2 @@
 [test]
 root = "./src"
-preload = ["@opentui/solid/preload", "./test-isolation.ts"]

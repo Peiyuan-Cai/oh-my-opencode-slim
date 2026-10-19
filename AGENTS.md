@@ -56,19 +56,6 @@ bun test -t "test-name-pattern"
 - Let errors propagate appropriately rather than catching silently
 - Use Zod for runtime validation (already a dependency)
 
-### Test Time
-- Tests never bind to real time (`ts-no-test-timers`): no `Bun.sleep()`,
-  guessed `setTimeout` waits, or duration-based settling.
-- Drive timer code deterministically with `src/utils/test-timers.ts`
-  (`createTimerHarness`, `tick`). Scheduling components accept injected
-  `setTimeout`/`clearTimeout` seams (see `BackgroundJobSupervisor`,
-  `createBackgroundJobTerminalGate`); wire the harness there, not via
-  global spies.
-- Keep observation-time (`now`) seams separate from scheduling when event
-  timestamps are the subject of the test.
-- Integration tests that exercise real platform timing may keep a real
-  delay: keep rare and comment why deterministic control will not work.
-
 ### Git Integration
 - Biome integrates with git (VCS enabled)
 - Commits should pass `bun run check:ci` before pushing
@@ -81,12 +68,13 @@ oh-my-opencode-slim/
 │   ├── agents/       # Agent factories (orchestrator, explorer, oracle, etc.)
 │   ├── cli/          # CLI entry point
 │   ├── config/       # Constants, schemas, MCP defaults
+│   ├── council/      # Council manager (multi-LLM session orchestration)
 │   ├── hooks/        # OpenCode lifecycle hooks
 │   ├── mcp/          # MCP server definitions
 │   ├── multiplexer/  # Tmux/Zellij pane integration for child sessions
 │   ├── skills/       # Skill definitions (included in package publish)
-│   ├── tools/        # Tool definitions (webfetch, AST-grep, etc.)
-│   └── utils/        # Shared utilities (session, task, logger, env, etc.)
+│   ├── tools/        # Tool definitions (council, webfetch, AST-grep, etc.)
+│   └── utils/        # Shared utilities (tmux, session helpers)
 ├── dist/             # Built JavaScript and declarations
 ├── docs/             # User-facing documentation
 ├── biome.json        # Biome configuration
@@ -96,9 +84,8 @@ oh-my-opencode-slim/
 
 ## Key Dependencies
 
-- `@opencode-ai/plugin` - OpenCode server and TUI plugin contracts
+- `@modelcontextprotocol/sdk` - MCP protocol implementation
 - `@opencode-ai/sdk` - OpenCode AI SDK
-- `@opentui/core` / `@opentui/solid` - Optional TUI rendering stack
 - `zod` - Runtime validation
 
 ## Development Workflow
@@ -113,57 +100,154 @@ oh-my-opencode-slim/
 5. Run `bun test` to verify tests pass
 6. Commit changes
 
-## Release Workflow
+## Tmux Session Lifecycle Management
 
-For plugin or Companion releases, follow `docs/release.md`. It documents the
-required diff inspection, companion asset workflow, GitHub release creation,
-tagging, verification, and npm publish order.
+When working with tmux integration, understanding the session lifecycle is crucial for preventing orphaned processes and ghost panes.
 
-## Prompt Cache Safety
+### Session Lifecycle Flow
 
-Provider prompt caches are exact byte-prefix matches over the rendered
-request (tools → system → messages). Any byte that changes earlier in the
-payload invalidates the cache for everything after it, so every request in
-the session re-pays full input cost and latency. Past regressions in this
-repo all came from hooks rewriting or repositioning earlier conversation
-content.
+```
+Task Launch:
+  session.create() → tmux pane spawned → task runs
 
-Rules when touching anything that feeds the outgoing payload (hooks,
-agent prompts, config constants):
+Task Completes Normally:
+  session.status (idle) → extract results → session.abort()
+  → session.deleted event → tmux pane closed
 
-- Inject content only through `src/hooks/cache-safe-injection.ts`:
-  deterministic content via `appendTaggedSyntheticPart` (tail of an existing
-  message), per-turn volatile content via `stripTaggedContent` +
-  `appendTrailingVolatileMessage` (trailing message, end of payload).
-- Never mutate or reorder earlier messages, and never let timestamps,
-  randomness, or per-request IDs reach content before the payload tail.
-- Keep system prompts and tool sets frozen for the lifetime of a session.
+Task Cancelled:
+  cancel() → session.abort() → session.deleted event
+  → tmux pane closed
 
-Enforcement (all run in `bun test` / CI):
+Session Deleted Externally:
+  session.deleted event → task cleanup → tmux pane closed
+```
 
-- `src/hooks/cache-safety.property.test.ts` — prefix-stability and
-  determinism properties over the real transform pipeline, with a drift
-  guard pinned to the composition in `src/index.ts`. New transform steps
-  must be added to `src/hooks/cache-safety-harness.test.ts`.
-- `src/hooks/cache-payload.snapshot.test.ts` — golden snapshots of injected
-  prompt surfaces; failing means the change busts caches once fleet-wide and
-  must be updated deliberately via `bun test --update-snapshots`.
-- `src/cache-safety-tripwire.test.ts` — bans volatile-input patterns in
-  prompt-assembly directories outside a justified allowlist.
-- `src/hooks/cache-monitor/` — runtime watchdog that logs a warning when a
-  session that was hitting the provider cache reports zero cached tokens.
+### Key Implementation Details
 
-See `docs/cache-verification.md` for the full verification story.
+**1. Graceful Shutdown (src/utils/tmux.ts)**
+```typescript
+// Always send Ctrl+C before killing pane
+spawn([tmux, "send-keys", "-t", paneId, "C-c"])
+await delay(250)
+spawn([tmux, "kill-pane", "-t", paneId])
+```
+
+**2. Session Abort Timing (src/council/council-manager.ts)**
+- Call `session.abort()` AFTER extracting task results
+- This ensures content is preserved before session termination
+- Triggers `session.deleted` event for cleanup
+
+**3. Event Handlers (src/index.ts)**
+The multiplexer session handler must stay wired up:
+- `multiplexerSessionManager.onSessionDeleted()` - closes tmux/zellij panes
+
+### Testing Tmux Integration
+
+After making changes to session management:
+
+```bash
+# 1. Build the plugin
+bun run build
+
+# 2. Run from local fork (in ~/.config/opencode/opencode.jsonc):
+# "plugin": ["file:///path/to/oh-my-opencode-slim"]
+
+# 3. Launch test tasks
+@explorer count files in src/
+@librarian search for Bun documentation
+
+# 4. Verify no orphans
+ps aux | grep "opencode attach" | grep -v grep
+# Should return 0 processes after tasks complete
+```
+
+### Common Issues
+
+**Ghost panes remaining open:**
+- Check that `session.abort()` is called after result extraction
+- Verify `session.deleted` handler is wired in src/index.ts
+
+**Orphaned opencode attach processes:**
+- Ensure graceful shutdown sends Ctrl+C before kill-pane
+- Check that tmux pane closes before process termination
 
 ## Pre-Push Code Review
 
-Before pushing changes to the repository, when makes sense run a code review to catch issues like:
+Before pushing changes to the repository, always run a code review to catch issues like:
 - Duplicate code
 - Redundant function calls
 - Race conditions
 - Logic errors
-- Cache safety: prompt-prefix rewrites, volatile content outside the
-  trailing zone, or injections bypassing `src/hooks/cache-safe-injection.ts`
+
+### Using `/review` Command (Recommended)
+
+OpenCode has a built-in `/review` command that automatically performs comprehensive code reviews:
+
+```bash
+# Review uncommitted changes (default)
+/review
+
+# Review specific commit
+/review <commit-hash>
+
+# Review branch comparison
+/review <branch-name>
+
+# Review PR
+/review <pr-url-or-number>
+```
+
+**Why use `/review` instead of asking @oracle manually?**
+- Standardized review process with consistent focus areas (bugs, structure, performance)
+- Automatically handles git operations (diff, status, etc.)
+- Context-aware: reads full files and convention files (AGENTS.md, etc.)
+- Delegates to specialized @build subagent with proper permissions
+- Provides actionable, matter-of-fact feedback
+
+### Workflow Before Pushing
+
+1. **Make your changes**
+   ```bash
+   # ... edit files ...
+   ```
+
+2. **Stage changes**
+   ```bash
+   git add .
+   ```
+
+3. **Run code review**
+   ```
+   /review
+   ```
+
+4. **Address any issues found**
+
+5. **Run checks**
+   ```bash
+   bun run check:ci
+   bun test
+   ```
+
+6. **Commit and push**
+   ```bash
+   git commit -m "..."
+   git push origin <branch>
+   ```
+
+**Note:** The `/review` command found issues in our PR #127 (duplicate code, redundant abort calls) that neither linter nor tests caught. Always use it before pushing!
+
+## Common Patterns
+
+- This is an OpenCode plugin - most functionality lives in `src/`
+- The CLI entry point is `src/cli/index.ts`
+- The main plugin export is `src/index.ts`
+- Agent factories are in `src/agents/` — each agent has its own file + optional `.test.ts`
+- Skills are located in `src/skills/` (included in package publish)
+- Multiplexer session management is in `src/multiplexer/`
+- Council manager (multi-LLM orchestration) is in `src/council/`
+- Tmux utilities are in `src/utils/tmux.ts`
+- 468 tests across 35 files — run `bun test` to verify
 
 ## Repository Map
 
@@ -177,42 +261,20 @@ Before working on any task, read `codemap.md` to understand:
 For deep work on a specific folder, also read that folder's `codemap.md`.
 
 ## Debugging Issues
-
 ### OpenCode
 Log files are written to:
 macOS/Linux: ~/.local/share/opencode/log/
 Windows: Press WIN+R and paste %USERPROFILE%\.local\share\opencode\log
 Log files are named with timestamps (e.g., 2025-01-09T123456.log) and the most recent 10 log files are kept.
 You can set the log level with the --log-level command-line option to get more detailed debug information. For example, opencode --log-level DEBUG.
-
 ### Plugin
-~/.local/share/opencode/log/oh-my-opencode-slim.<timestamp>-<pid>.log
-One file per process (the pid suffix disambiguates processes that start in the
-same second); TUI client processes use the `tui-` prefix.
+~/.local/share/opencode/log/oh-my-opencode-slim.<timestamp>.log
 
 ## Cloned Dependency Source
 
 Read-only dependency source repositories are available under
 `.slim/clonedeps/repos/` for inspection. Do not edit these clones.
 
-- `.slim/clonedeps/repos/anomalyco__opencode-v1.18.13/` - `https://github.com/anomalyco/opencode.git` at `v1.18.13@a105350812f05f914c768e468559dbd6bd508d8e`; inspect `packages/plugin` and `packages/sdk/js` for OpenCode plugin and SDK internals.
-- `.slim/clonedeps/repos/opencode/` - `https://github.com/anomalyco/opencode.git` at `v2@dbd9b18f3d7b4ef3e346eafd91613896c9e3c864`; inspect `packages/core` and `packages/server` for the v2 TypeScript runtime (split from the former `packages/opencode`), `packages/plugin` for the v2 plugin/hook API, `packages/sdk` (embedded host) and `packages/client` (HTTP client) for v2 SDK internals, and `packages/core/src/tool/plugin/subagent.ts` for background subagent support.
-- `.slim/clonedeps/repos/modelcontextprotocol__typescript-sdk/` - `https://github.com/modelcontextprotocol/typescript-sdk.git` at `1.30.0@2d889f2b329e46680ec9bdd565de4616c497825a`; inspect it for MCP protocol and server integration internals.
-- `.slim/clonedeps/repos/agentclientprotocol__agent-client-protocol/` - `https://github.com/agentclientprotocol/agent-client-protocol.git` at `main@541daf8fa488c6b93aad4a874ac050b3daf9b282`; inspect it for ACP protocol specification and schema details.
-
-## Agent Operating Context
-
-### Issue tracker
-
-Issues and PRs are tracked on GitHub (`alvinunreal/oh-my-opencode-slim`); external PRs are a triage surface. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Canonical triage roles map to repo labels via `docs/agents/triage-labels.md`
-(e.g. `ready-for-agent` → `good-to-code`; `needs-triage` = unlabeled). Install
-the `triage` skill (command in `docs/maintainers.md`). Community preset
-submissions use the `community-preset` label (see `docs/maintainers.md`).
-
-### Domain docs
-
-Single glossary at the root: `GLOSSARY.md`, plus `docs/adr/` and `codemap.md`. See `docs/agents/domain.md`.
+- `.slim/clonedeps/repos/opencode-ai__opencode/` — `https://github.com/opencode-ai/opencode.git` at `main@73ee493265acf15fcd8caab2bc8cd3bd375b63cb`; inspect `packages/plugin` and `packages/sdk/js` for OpenCode plugin and SDK internals.
+- `.slim/clonedeps/repos/opencode/` — `https://github.com/anomalyco/opencode.git` at `dev@356f6841865d68adf6d0123c37357ad50814497a`; inspect `packages/opencode` for latest TypeScript runtime internals and experimental background subagent support.
+- `.slim/clonedeps/repos/modelcontextprotocol__typescript-sdk/` — `https://github.com/modelcontextprotocol/typescript-sdk.git` at `v1.29.0@e12cbd7078db388152f6e839abdbe09ba01f3f32`; inspect it for MCP protocol and server integration internals.

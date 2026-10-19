@@ -1,15 +1,15 @@
 # OpenCode Go Preset
 
-`opencode-go` runs the Pantheon agents on OpenCode Go models instead of the
-default OpenAI setup.
+`opencode-go` is a bundled generated preset for users who want to run the
+Pantheon agents through OpenCode Go models instead of the default OpenAI setup.
 
-The installer builds both `openai` and `opencode-go`. OpenAI stays active unless
-you choose OpenCode Go at install time or switch to it later.
+The installer generates both `openai` and `opencode-go` presets. OpenAI stays
+active by default unless you select OpenCode Go during install or switch to it
+later.
 
-Because the `opencode-go` Orchestrator model (`minimax-m3`) is not multimodal,
-installing with `--preset=opencode-go` also enables the Observer agent and
-configures it with `opencode-go/mimo-v2.5` (a native omnimodal model) for
-visual analysis.
+Because the `opencode-go` preset uses GLM-5.1 for Orchestrator and GLM is not
+multimodal, installing with `--preset=opencode-go` also enables the Observer
+agent and configures it with `opencode-go/kimi-k2.6` for visual analysis.
 
 ## Install with OpenCode Go Active
 
@@ -27,8 +27,10 @@ opencode models --refresh
 ## Switch at Runtime
 
 If both presets are already in your config, switch from inside OpenCode:
-- **v2 hosts:** type `/preset opencode-go` to apply directly (reload still required)
-- **v1 hosts:** open `/preset` from autocomplete and pick Apply
+
+```text
+/preset opencode-go
+```
 
 See [Preset Switching](preset-switching.md) for the full runtime switching
 workflow. If you originally installed with the default OpenAI preset, also add
@@ -46,12 +48,14 @@ role:
 
 | Agent | Model |
 |-------|-------|
-| Orchestrator | `opencode-go/minimax-m3` (`thinking`) |
-| Oracle | `opencode-go/qwen3.7-max` (`max`) |
-| Explorer | `opencode-go/deepseek-v4-flash` (`high`) + MCPs |
-| Designer | `opencode-go/kimi-k2.7-code` |
+| Orchestrator | `opencode-go/glm-5.1` |
+| Oracle | `opencode-go/deepseek-v4-pro` (`max`) |
+| Council | `opencode-go/deepseek-v4-pro` (`high`) |
+| Librarian | `opencode-go/minimax-m2.7` |
+| Explorer | `opencode-go/minimax-m2.7` |
+| Designer | `opencode-go/kimi-k2.6` (`medium`) |
 | Fixer | `opencode-go/deepseek-v4-flash` (`high`) |
-| Observer | `opencode-go/mimo-v2.5` |
+| Observer | `opencode-go/kimi-k2.6` |
 
 ## Generated Config Shape
 
@@ -64,40 +68,30 @@ setting the top-level `preset` field:
   "disabled_agents": [],
   "presets": {
     "opencode-go": {
-      "orchestrator": {
-        "model": "opencode-go/minimax-m3",
-        "variant": "thinking"
-      },
+      "orchestrator": { "model": "opencode-go/glm-5.1" },
       "oracle": {
-        "model": "opencode-go/qwen3.7-max",
+        "model": "opencode-go/deepseek-v4-pro",
         "variant": "max"
       },
-      "explorer": {
-        "model": "opencode-go/deepseek-v4-flash",
+      "council": {
+        "model": "opencode-go/deepseek-v4-pro",
         "variant": "high"
       },
+      "librarian": { "model": "opencode-go/minimax-m2.7" },
+      "explorer": { "model": "opencode-go/minimax-m2.7" },
       "designer": {
-        "model": "opencode-go/kimi-k2.7-code"
+        "model": "opencode-go/kimi-k2.6",
+        "variant": "medium"
       },
       "fixer": {
         "model": "opencode-go/deepseek-v4-flash",
         "variant": "high"
       },
-      "observer": {
-        "model": "opencode-go/mimo-v2.5"
-      }
+      "observer": { "model": "opencode-go/kimi-k2.6" }
     }
   }
 }
 ```
-
-## Skill Reference
-
-This preset defines per-agent `skills` and `mcps` via `generateLiteConfig`. The generated config includes `skills: ["*"]` for Orchestrator and agent-specific MCP lists (e.g., Explorer gets `context7`, `gh_grep`).
-
-| Skill | Description | Source |
-| --- | --- | --- |
-| `*` | All installed skills (wildcard) | `public` |
 
 For the complete configuration reference, see
 [Configuration](configuration.md).
