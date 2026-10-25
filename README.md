@@ -1,6 +1,6 @@
 # OMO1 + OpenCode V2 — Peiyuan-Cai fork
 
-This fork preserves the **OMO Slim 1.1.2 multi-agent architecture**, personal
+This fork preserves the **OMO Slim 1.2.0 multi-agent architecture**, personal
 workflow customizations, and Superpowers Lite integration while adapting the
 host boundary to **OpenCode 2.0.32**. It does **not** adopt OMO2/OMO3's agent
 architecture and does not auto-upgrade to the upstream npm package.
@@ -57,7 +57,7 @@ before changing an existing setup. Restart/reload the intended host when ready.
 
 - Primary `orchestrator`, `orchestrator-beta`, and `orchestrator-delta` profiles.
 - Explorer, librarian, oracle, designer, fixer, observer, council/councillor,
-  custom laborer, best-of-N variants, and narrow utility agents.
+  custom laborer, and narrow utility agents.
 - Existing preset/model mapping, prompt bridges, native subagent delegation,
   Lite skill policy, and persistent plugin-owned todo tools.
 - Auto-continue retains the **active orchestrator variant AND manually selected

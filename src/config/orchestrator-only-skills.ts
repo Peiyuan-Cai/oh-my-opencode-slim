@@ -9,7 +9,6 @@
  * Future skills that should be orchestrator-only just append here.
  */
 export const RESERVED_ORCHESTRATOR_ONLY_SKILLS: ReadonlyArray<string> = [
-  'best-of-n-with-judge',
   'update-memory', // PLACEHOLDER: skill landing in a future commit (memory layer)
 ] as const;
 

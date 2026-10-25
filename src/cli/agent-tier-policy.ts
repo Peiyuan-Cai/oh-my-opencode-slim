@@ -20,7 +20,6 @@ const TIER_3_BASE_NAMES = new Set([
   'scout',
   'validator',
   'gist',
-  'wildcard',
 ]);
 
 /**

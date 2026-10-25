@@ -56,8 +56,8 @@ describe('getRestrictedMcpDenies', () => {
     );
   });
 
-  test('wildcard gets all 3 denied', () => {
-    expect(getRestrictedMcpDenies('wildcard').sort()).toEqual(
+  test('gist gets all 3 denied', () => {
+    expect(getRestrictedMcpDenies('gist').sort()).toEqual(
       ['chrome-devtools', 'playwright', 'windows-mcp'].sort(),
     );
   });

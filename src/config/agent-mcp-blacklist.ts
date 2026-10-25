@@ -27,8 +27,8 @@ const MCP_OPERATOR_BASES: Record<string, ReadonlyArray<string>> = {
  * Return the list of restricted MCP names that should be denied for the
  * given agent.
  *
- * Variant agents (e.g. `fixer-alpha`, `librarian-beta`) resolve to their
- * base name via `resolveBaseAgentName` and inherit the base's operator
+ * Suffixed custom agents (e.g. `fixer-extra`, `librarian-narrow`) resolve to
+ * their base name via `resolveBaseAgentName` and inherit the base's operator
  * status.
  */
 export function getRestrictedMcpDenies(agentName: string): string[] {

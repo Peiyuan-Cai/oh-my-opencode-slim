@@ -1,6 +1,6 @@
 {
   "name": "oh-my-opencode-slim",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Peiyuan-Cai's OMO1 multi-agent architecture with Superpowers Lite and OpenCode V2 compatibility",
   "packageManager": "bun@1.3.1",
   "main": "dist/index.js",

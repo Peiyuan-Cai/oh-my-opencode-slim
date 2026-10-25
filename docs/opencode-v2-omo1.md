@@ -1,6 +1,6 @@
 # OpenCode V2 adapter for the local OMO1 architecture
 
-This branch ports the **existing patched OMO Slim 1.1.2** architecture. It does
+This branch ports the **existing patched OMO Slim 1.2.0** architecture. It does
 not upgrade to OMO2/OMO3, replace the specialist roles, or import their new
 orchestration architecture. The original V1 entrypoint remains `dist/index.js`.
 V2 loads `server.js` / the package's `./server` export (`dist/v2/index.js`).
@@ -41,7 +41,7 @@ bun scripts/migrate-v2-agent-files.ts /path/to/opencode-config --apply
 ```
 
 This expands `{file:...}` prompt-frontmatter references into the Markdown body
-and makes named best-of-N variants dispatchable. Explicit Markdown fields have
+and makes named custom agent files dispatchable. Explicit Markdown fields have
 host precedence over plugin transforms, so an existing `hidden: true` cannot be
 reliably undone by plugin code alone. `--apply` backs up every changed file under
 `migration-backups/` (outside `agents/`). It is idempotent, leaves unrelated
@@ -56,8 +56,8 @@ sessions retain their persisted agent/model selection.
 ## Preserved behavior
 
 - The OMO1 orchestrator, specialist factories, custom agents, and presets.
-- `orchestrator-beta` / `orchestrator-delta` primary entries, specialist models
-  and reasoning variants, and inherited base methodology for named variants.
+- `orchestrator-beta` / `orchestrator-delta` primary entries, specialist models,
+  and reasoning variants.
 - Native V2 `subagent` delegation (old task argument/permission vocabulary is
   adapted at the boundary).
 - Lite's shared skill bodies, bootstrap, and OMO1 skill permissions/filtering.
@@ -93,8 +93,8 @@ sessions retain their persisted agent/model selection.
 - The V2 selector keeps the session model separate from its agent selection.
   Select the desired model explicitly when changing a primary agent; the
   adapter deliberately does not switch a live session's model behind your back.
-- V1 hidden best-of-N variants were still dispatchable. V2 excludes hidden
-  agents from its subagent catalog, so named specialist variants are visible
+- V1 hidden custom agents were still dispatchable. V2 excludes hidden agents
+  from its subagent catalog, so named custom specialist agents are visible
   there; internal `councillor` remains hidden and is launched by CouncilManager.
 - Only `@opencode/plugin` **2.0.32** is compile-time checked. Host verification
   is against OpenCode **2.0.32**, not a claim about every V2 release.

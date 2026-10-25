@@ -183,13 +183,13 @@ describe('getSkillPermissionsForAgent — tier 3 default deny', () => {
     expect(perms['*']).toBe('deny');
   });
 
-  test('wildcard has * deny (tier 3)', () => {
-    const perms = getSkillPermissionsForAgent('wildcard');
+  test('gist has * deny (tier 3)', () => {
+    const perms = getSkillPermissionsForAgent('gist');
     expect(perms['*']).toBe('deny');
   });
 
-  test('oracle-alpha inherits oracle * deny', () => {
-    const perms = getSkillPermissionsForAgent('oracle-alpha');
+  test('oracle-extra inherits oracle * deny', () => {
+    const perms = getSkillPermissionsForAgent('oracle-extra');
     expect(perms['*']).toBe('deny');
   });
 
@@ -215,31 +215,19 @@ describe('getSkillPermissionsForAgent — tier 3 default deny', () => {
 });
 
 describe('getSkillPermissionsForAgent — reserved orchestrator-only skills', () => {
-  test('orchestrator can use best-of-n-with-judge', () => {
-    const perms = getSkillPermissionsForAgent('orchestrator');
-    expect(perms['best-of-n-with-judge']).toBe('allow');
-  });
-
   test('orchestrator can use update-memory', () => {
     const perms = getSkillPermissionsForAgent('orchestrator');
     expect(perms['update-memory']).toBe('allow');
   });
 
-  test('orchestrator-beta can use both reserved skills', () => {
+  test('orchestrator-beta can use update-memory', () => {
     const perms = getSkillPermissionsForAgent('orchestrator-beta');
-    expect(perms['best-of-n-with-judge']).toBe('allow');
     expect(perms['update-memory']).toBe('allow');
   });
 
-  test('orchestrator-delta can use both reserved skills', () => {
+  test('orchestrator-delta can use update-memory', () => {
     const perms = getSkillPermissionsForAgent('orchestrator-delta');
-    expect(perms['best-of-n-with-judge']).toBe('allow');
     expect(perms['update-memory']).toBe('allow');
-  });
-
-  test('fixer cannot use best-of-n-with-judge despite * allow', () => {
-    const perms = getSkillPermissionsForAgent('fixer');
-    expect(perms['best-of-n-with-judge']).toBe('deny');
   });
 
   test('fixer cannot use update-memory despite * allow', () => {
@@ -247,15 +235,14 @@ describe('getSkillPermissionsForAgent — reserved orchestrator-only skills', ()
     expect(perms['update-memory']).toBe('deny');
   });
 
-  test('wildcard cannot use either reserved skill', () => {
-    const perms = getSkillPermissionsForAgent('wildcard');
-    expect(perms['best-of-n-with-judge']).toBe('deny');
+  test('gist cannot use update-memory', () => {
+    const perms = getSkillPermissionsForAgent('gist');
     expect(perms['update-memory']).toBe('deny');
   });
 
-  test('fixer-alpha cannot use reserved skills (no inheritance)', () => {
-    const perms = getSkillPermissionsForAgent('fixer-alpha');
-    expect(perms['best-of-n-with-judge']).toBe('deny');
+  test('fixer-extra cannot use reserved skills (no inheritance)', () => {
+    const perms = getSkillPermissionsForAgent('fixer-extra');
+    expect(perms['update-memory']).toBe('deny');
   });
 });
 
@@ -264,25 +251,21 @@ describe('getSkillPermissionsForAgent — reserved skills still override explici
     const perms = getSkillPermissionsForAgent('orchestrator', [
       'brainstorming',
     ]);
-    expect(perms['best-of-n-with-judge']).toBe('allow');
     expect(perms['update-memory']).toBe('allow');
     expect(perms.brainstorming).toBe('allow');
   });
 
   test('fixer explicit list cannot grant reserved skills', () => {
     const perms = getSkillPermissionsForAgent('fixer', [
-      'best-of-n-with-judge',
       'update-memory',
       'my-skill',
     ]);
-    expect(perms['best-of-n-with-judge']).toBe('deny');
     expect(perms['update-memory']).toBe('deny');
     expect(perms['my-skill']).toBe('allow');
   });
 
-  test('wildcard explicit wildcard still cannot access reserved skills', () => {
-    const perms = getSkillPermissionsForAgent('wildcard', ['*']);
-    expect(perms['best-of-n-with-judge']).toBe('deny');
+  test('gist explicit wildcard still cannot access reserved skills', () => {
+    const perms = getSkillPermissionsForAgent('gist', ['*']);
     expect(perms['update-memory']).toBe('deny');
   });
 });
