@@ -173,7 +173,6 @@ function buildCustomAgentDefinition(
         typeof override.model === 'string'
           ? override.model
           : (DEFAULT_MODELS.orchestrator ?? DEFAULT_MODELS.oracle),
-      temperature: 0.2,
       prompt: resolvePrompt(basePrompt, filePrompt, fileAppendPrompt),
     },
   } as AgentDefinition;
