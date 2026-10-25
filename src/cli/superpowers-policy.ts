@@ -23,18 +23,17 @@ const AGENT_ALLOWED_SUPERPOWERS: Record<string, string[]> = {
   observer: [],
   council: [],
   councillor: [],
-  // Best-of-N utility agents (custom; fall-through default = empty allowed)
+  // Narrow utility agents (custom; fall-through default = empty allowed)
   scout: [],
   validator: ['verification-before-completion'],
   gist: [],
-  wildcard: [],
 };
 
 /**
  * Resolve a possibly-suffixed agent name to its base name for policy lookup.
- * Variant agents like "fixer-alpha", "oracle-gamma", "designer-delta" map to
- * their base "fixer", "oracle", "designer" respectively, so they inherit the
- * base agent's superpowers permission policy without needing to be listed
+ * Suffixed custom agents like "fixer-extra", "oracle-narrow", "designer-ui"
+ * map to their base "fixer", "oracle", "designer" respectively, so they inherit
+ * the base agent's superpowers permission policy without needing to be listed
  * explicitly in AGENT_ALLOWED_SUPERPOWERS.
  *
  * Names that are already in the policy map are returned as-is (no stripping).
@@ -42,7 +41,7 @@ const AGENT_ALLOWED_SUPERPOWERS: Record<string, string[]> = {
  * fall through to empty-allowed default).
  *
  * Examples:
- *   "fixer-alpha"  -> "fixer"     (suffix-stripped)
+ *   "fixer-extra"  -> "fixer"     (suffix-stripped)
  *   "fixer"        -> "fixer"     (already in map)
  *   "validator"    -> "validator" (already in map, no strip)
  *   "scout"        -> "scout"     (already in map)

@@ -98,8 +98,9 @@ def main():
     project.mkdir()
     agents = {name: {"model": "fixture/" + name, "variant": "high"}
               for name in ["orchestrator", "orchestrator-beta", "orchestrator-delta",
-                           "oracle", "fixer", "fixer-alpha", "librarian", "explorer",
-                           "designer", "observer", "council", "councillor"]}
+                           "oracle", "fixer", "librarian", "explorer",
+                           "designer", "observer", "council", "councillor",
+                           "scout", "validator", "gist"]}
     inference = args.mock_model
     provider, requests = mock_provider() if inference else (None, [])
     omo_config = {

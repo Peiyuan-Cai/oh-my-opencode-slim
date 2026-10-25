@@ -653,30 +653,30 @@ describe('getAgentConfigs — restricted MCP blacklist', () => {
     expect(libPerm['playwright_*']).toBeUndefined();
   });
 
-  test('explorer-alpha (variant) inherits explorer denies', () => {
+  test('explorer-extra (suffixed custom agent) inherits explorer denies', () => {
     const configs = getAgentConfigs({
       agents: {
-        'explorer-alpha': { model: 'openai/gpt-5.4-mini' },
+        'explorer-extra': { model: 'openai/gpt-5.4-mini' },
       },
     });
-    const epAlpha =
-      (configs['explorer-alpha']?.permission as Record<string, unknown>) ?? {};
-    expect(epAlpha['windows-mcp_*']).toBe('deny');
-    expect(epAlpha['chrome-devtools_*']).toBe('deny');
-    expect(epAlpha['playwright_*']).toBe('deny');
+    const epExtra =
+      (configs['explorer-extra']?.permission as Record<string, unknown>) ?? {};
+    expect(epExtra['windows-mcp_*']).toBe('deny');
+    expect(epExtra['chrome-devtools_*']).toBe('deny');
+    expect(epExtra['playwright_*']).toBe('deny');
   });
 
-  test('wildcard has all 3 restricted MCPs denied', () => {
+  test('gist has all 3 restricted MCPs denied', () => {
     const configs = getAgentConfigs({
       agents: {
-        wildcard: { model: 'openai/gpt-5.4-mini' },
+        gist: { model: 'openai/gpt-5.4-mini' },
       },
     });
-    const wcPerm =
-      (configs.wildcard?.permission as Record<string, unknown>) ?? {};
-    expect(wcPerm['windows-mcp_*']).toBe('deny');
-    expect(wcPerm['chrome-devtools_*']).toBe('deny');
-    expect(wcPerm['playwright_*']).toBe('deny');
+    const gistPerm =
+      (configs.gist?.permission as Record<string, unknown>) ?? {};
+    expect(gistPerm['windows-mcp_*']).toBe('deny');
+    expect(gistPerm['chrome-devtools_*']).toBe('deny');
+    expect(gistPerm['playwright_*']).toBe('deny');
   });
 });
 
@@ -1165,8 +1165,12 @@ describe('observer agent', () => {
 describe('permission redesign — spec coverage summary', () => {
   test('reserved skills are denied on all non-orchestrator agents', () => {
     const configs = getAgentConfigs();
-    const reservedSkills = ['best-of-n-with-judge', 'update-memory'];
-    const orchestratorAgents = ['orchestrator', 'orchestrator-beta'];
+    const reservedSkills = ['update-memory'];
+    const orchestratorAgents = [
+      'orchestrator',
+      'orchestrator-beta',
+      'orchestrator-delta',
+    ];
 
     for (const [agentName, agentConfig] of Object.entries(configs)) {
       const perm = (agentConfig.permission as Record<string, unknown>) ?? {};
@@ -1184,23 +1188,14 @@ describe('permission redesign — spec coverage summary', () => {
   test('all tier-3 agents have * deny on non-SP skills', () => {
     const tier3 = [
       'oracle',
-      'oracle-alpha',
-      'oracle-beta',
-      'oracle-gamma',
-      'oracle-delta',
       'explorer',
-      'explorer-alpha',
-      'explorer-beta',
       'librarian',
-      'librarian-alpha',
-      'librarian-beta',
       'observer',
       'council',
       'councillor',
       'scout',
       'validator',
       'gist',
-      'wildcard',
     ];
     for (const name of tier3) {
       const skillPerm = getSkillPermissionsForAgent(name);

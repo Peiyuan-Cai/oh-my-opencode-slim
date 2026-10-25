@@ -6,10 +6,7 @@ import {
 
 describe('RESERVED_ORCHESTRATOR_ONLY_SKILLS', () => {
   test('contains exactly the reserved skill names in order', () => {
-    expect(RESERVED_ORCHESTRATOR_ONLY_SKILLS).toEqual([
-      'best-of-n-with-judge',
-      'update-memory',
-    ]);
+    expect(RESERVED_ORCHESTRATOR_ONLY_SKILLS).toEqual(['update-memory']);
   });
 });
 
@@ -30,16 +27,16 @@ describe('isReservedSkillAllowed', () => {
     expect(isReservedSkillAllowed('fixer')).toBe(false);
   });
 
-  test('fixer-alpha is denied (variants do not inherit reserved access)', () => {
-    expect(isReservedSkillAllowed('fixer-alpha')).toBe(false);
+  test('fixer-extra is denied (suffixed custom agents do not inherit reserved access)', () => {
+    expect(isReservedSkillAllowed('fixer-extra')).toBe(false);
   });
 
   test('oracle is denied', () => {
     expect(isReservedSkillAllowed('oracle')).toBe(false);
   });
 
-  test('wildcard is denied', () => {
-    expect(isReservedSkillAllowed('wildcard')).toBe(false);
+  test('gist is denied', () => {
+    expect(isReservedSkillAllowed('gist')).toBe(false);
   });
 
   test('unknown agent name is denied', () => {

@@ -17,7 +17,7 @@ describe('mergeAgentConfig', () => {
         question: 'allow',
         skill: {
           'update-memory': 'deny',
-          'best-of-n-with-judge': 'deny',
+          'custom-skill': 'deny',
           '*': 'deny',
         },
       },
@@ -37,9 +37,7 @@ describe('mergeAgentConfig', () => {
     expect((merged.permission as any).write).toBe('deny');
     expect((merged.permission as any).question).toBe('allow');
     expect((merged.permission as any).skill['update-memory']).toBe('deny');
-    expect((merged.permission as any).skill['best-of-n-with-judge']).toBe(
-      'deny',
-    );
+    expect((merged.permission as any).skill['custom-skill']).toBe('deny');
     expect((merged.permission as any).skill['*']).toBe('deny');
   });
 

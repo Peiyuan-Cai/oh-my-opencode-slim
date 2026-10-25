@@ -70,10 +70,6 @@ describe('getDefaultNonSpPolicy', () => {
     expect(getDefaultNonSpPolicy('gist')).toBe('deny');
   });
 
-  test('wildcard: deny', () => {
-    expect(getDefaultNonSpPolicy('wildcard')).toBe('deny');
-  });
-
   test('unknown agent name: allow (safe default for unknown custom agents)', () => {
     expect(getDefaultNonSpPolicy('foo-unknown')).toBe('allow');
   });
