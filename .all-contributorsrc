@@ -533,6 +533,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "Peiyuan-Cai",
+      "name": "Puiyuen \"Evon\" Choi",
+      "avatar_url": "https://avatars.githubusercontent.com/u/56531899?v=4",
+      "profile": "https://github.com/Peiyuan-Cai",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "commitConvention": "angular"
