@@ -57,7 +57,6 @@ export function createCouncilAgent(
     description:
       'Multi-LLM council agent that synthesizes responses from multiple models for higher-quality outputs',
     config: {
-      temperature: 0.1,
       prompt,
       permission: {
         edit: 'deny',

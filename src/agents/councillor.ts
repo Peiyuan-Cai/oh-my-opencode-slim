@@ -64,7 +64,6 @@ export function createCouncillorAgent(
       'Read-only council advisor. Examines codebase and provides independent analysis. Spawned internally by the council system.',
     config: {
       model,
-      temperature: 0.2,
       prompt,
       // Mirror OpenCode's explore agent: deny all, then allow read-only tools
       permission: {

@@ -50,7 +50,7 @@ The following fields are forwarded to the OpenCode SDK at runtime:
 | Field | Description |
 |-------|-------------|
 | `model` | Model ID in `provider/model` format. Array form (fallback chains) is resolved to the first entry |
-| `temperature` | Inference temperature (0-2) |
+| `temperature` | Optional inference temperature (0-2); unset uses the provider default |
 | `variant` | Model variant (e.g. `"thinking"`) |
 | `options` | Provider-specific options (e.g. thinking budget) |
 

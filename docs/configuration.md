@@ -90,7 +90,7 @@ Presets can also be switched at runtime without restarting using the `/preset` c
 | `presets` | object | — | Named preset configurations |
 |-----------|--------|---|-----------------------------|
 | `presets.<name>.<agent>.model` | string | — | Model ID in `provider/model` format |
-| `presets.<name>.<agent>.temperature` | number | — | Temperature (0–2) |
+| `presets.<name>.<agent>.temperature` | number | — | Optional temperature (0–2); when omitted, OpenCode uses the provider default |
 | `presets.<name>.<agent>.variant` | string | — | Reasoning effort: `"low"`, `"medium"`, `"high"` |
 | `presets.<name>.<agent>.displayName` | string | — | Custom user-facing alias for the agent (e.g. `"advisor"` for `oracle`) |
 | `presets.<name>.<agent>.skills` | string[] | — | Skills the agent can use (`"*"`, `"!item"`, explicit list) |
