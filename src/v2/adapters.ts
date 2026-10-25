@@ -74,6 +74,21 @@ export function parseModel(
   } as Model.Ref;
 }
 
+/**
+ * Claude models enable extended/adaptive thinking by default, and Anthropic
+ * rejects any `temperature` other than 1 while thinking is on. OMO1's coding
+ * defaults (e.g. 0.1) would therefore make every Claude request fail with 400,
+ * so leave the provider default in place for those models.
+ */
+export function sessionTemperature(
+  model: Model.Ref,
+  temperature: number | undefined,
+): number | undefined {
+  if (typeof temperature !== 'number') return undefined;
+  if (/(?:^|[./])claude-/i.test(model.id)) return undefined;
+  return temperature;
+}
+
 /** Translate only platform vocabulary, not the OMO1 roles or workflow. */
 export function adaptPrompt(text: string): string {
   return text

@@ -11,6 +11,7 @@ import {
   type LegacyAgent,
   legacyToolName,
   parseModel,
+  sessionTemperature,
 } from './adapters';
 import { createClientShim } from './client-shim';
 import { adaptEvent } from './events';
@@ -280,8 +281,11 @@ export async function setup(ctx: Plugin.Context) {
         configured?.providerID === event.model.providerID &&
         configured?.variant === event.model.variant
       ) {
-        if (typeof definition.temperature === 'number')
-          event.options.temperature = definition.temperature;
+        const temperature =
+          typeof definition.temperature === 'number'
+            ? sessionTemperature(event.model, definition.temperature)
+            : undefined;
+        if (temperature !== undefined) event.options.temperature = temperature;
         Object.assign(event.options, definition.options ?? {});
       }
       const messages = event.messages.map((message) => ({

@@ -8,6 +8,7 @@ import {
   adaptPrompt,
   applyAgent,
   parseModel,
+  sessionTemperature,
   toLegacyTranscript,
 } from './adapters';
 import { adaptEvent } from './events';
@@ -100,6 +101,36 @@ describe('OMO1 V2 platform translation', () => {
         'oracle',
       )[0].parts,
     ).toEqual([{ type: 'text', text: 'result' }]);
+  });
+  test('never injects OMO temperature defaults for Claude models', () => {
+    // Claude enables adaptive thinking by default, and Anthropic rejects any
+    // temperature other than 1 while thinking is on.
+    expect(
+      sessionTemperature(
+        { providerID: 'hairen-hub', id: 'claude-sonnet-5-5' },
+        0.1,
+      ),
+    ).toBeUndefined();
+    expect(
+      sessionTemperature(
+        { providerID: 'anthropic', id: 'claude-opus-4-5-20251101' },
+        0.1,
+      ),
+    ).toBeUndefined();
+    expect(
+      sessionTemperature({ providerID: 'vendor', id: 'vendor/claude-x' }, 0.1),
+    ).toBeUndefined();
+  });
+  test('keeps OMO temperature defaults for non-Claude models', () => {
+    expect(
+      sessionTemperature({ providerID: 'hairen-hub', id: 'gpt-6.1-sol' }, 0.1),
+    ).toBe(0.1);
+    expect(
+      sessionTemperature({ providerID: 'deepseek', id: 'deepseek-flash' }, 0.1),
+    ).toBe(0.1);
+    expect(
+      sessionTemperature({ providerID: 'vendor', id: 'reasoner' }, undefined),
+    ).toBeUndefined();
   });
   test('failure and user cancellation never synthesize successful idle', () => {
     expect(
